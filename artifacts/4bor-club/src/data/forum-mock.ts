@@ -6,7 +6,7 @@ export interface ForumCategory {
   id: string;
   title: string;
   description: string;
-  icon: string;              // emoji
+  icon: string;              // lucide icon name
   accessRoles: Role[];       // empty = everyone
   isReadOnly: boolean;       // only admin can post new threads
 }
@@ -42,7 +42,7 @@ export const forumCategories: ForumCategory[] = [
     id: 'c-general',
     title: 'Общий чат',
     description: 'Знакомства, вопросы о клубе, общение участников',
-    icon: '💬',
+    icon: 'message-square',
     accessRoles: [],
     isReadOnly: false,
   },
@@ -50,7 +50,7 @@ export const forumCategories: ForumCategory[] = [
     id: 'c-expertise',
     title: 'Экспертиза и атрибуция',
     description: 'Определение монет, помощь с атрибуцией, экспертные оценки',
-    icon: '🔍',
+    icon: 'scan-search',
     accessRoles: [],
     isReadOnly: false,
   },
@@ -58,7 +58,7 @@ export const forumCategories: ForumCategory[] = [
     id: 'c-deals',
     title: 'Сделки и переговоры',
     description: 'Обсуждение сделок, поиск партнёров. Только для дилеров',
-    icon: '🤝',
+    icon: 'scale',
     accessRoles: ['dealer', 'admin'],
     isReadOnly: false,
   },
@@ -66,7 +66,7 @@ export const forumCategories: ForumCategory[] = [
     id: 'c-numizmatika',
     title: 'Нумизматика',
     description: 'История монет, редкости, литература, каталоги и исследования',
-    icon: '📚',
+    icon: 'book-open',
     accessRoles: [],
     isReadOnly: false,
   },
@@ -74,7 +74,7 @@ export const forumCategories: ForumCategory[] = [
     id: 'c-tech',
     title: 'Хранение и реставрация',
     description: 'Чистка, консервация, капсулы, сейфы, советы по хранению',
-    icon: '🔧',
+    icon: 'shield',
     accessRoles: [],
     isReadOnly: false,
   },
@@ -82,7 +82,7 @@ export const forumCategories: ForumCategory[] = [
     id: 'c-announce',
     title: 'Объявления',
     description: 'Официальные объявления администрации клуба',
-    icon: '📢',
+    icon: 'bell',
     accessRoles: [],
     isReadOnly: true,
   },

@@ -1,10 +1,25 @@
 import React from 'react';
 import { Link } from 'wouter';
-import { MessageSquare, Lock, ChevronRight, Pin } from 'lucide-react';
+import {
+  MessageSquare, Lock, ChevronRight,
+  ScanSearch, Scale, BookOpen, Shield, Bell,
+  type LucideProps,
+} from 'lucide-react';
 import { useForum } from '../../contexts/ForumContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { ROLE_LABELS } from '../../lib/format';
 import type { Role } from '../../data/mock';
+
+type IconFC = React.FC<LucideProps>;
+
+const CATEGORY_ICONS: Record<string, IconFC> = {
+  'message-square': MessageSquare,
+  'scan-search':    ScanSearch,
+  'scale':          Scale,
+  'book-open':      BookOpen,
+  'shield':         Shield,
+  'bell':           Bell,
+};
 
 const ROLE_COLOR: Record<Role, string> = {
   admin:     'text-purple-600',
@@ -89,8 +104,11 @@ function CategoryCard({
   return (
     <div className="flex flex-1 min-w-0">
       {/* Icon column */}
-      <div className="w-12 md:w-16 flex-shrink-0 flex items-center justify-center border-r border-border/30 text-2xl md:text-3xl">
-        {accessible ? cat.icon : <Lock className="w-5 h-5 text-muted-foreground/50" />}
+      <div className="w-12 md:w-14 flex-shrink-0 flex items-center justify-center border-r border-border/30">
+        {accessible
+          ? (() => { const Icon = CATEGORY_ICONS[cat.icon] ?? MessageSquare; return <Icon className="w-5 h-5 text-primary/70" />; })()
+          : <Lock className="w-4 h-4 text-muted-foreground/40" />
+        }
       </div>
 
       {/* Main info */}
