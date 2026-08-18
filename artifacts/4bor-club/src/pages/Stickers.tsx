@@ -69,10 +69,10 @@ export default function Stickers() {
   };
 
   return (
-    <div className="p-8">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
+    <div className="p-4 md:p-8">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-6 md:mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-serif font-semibold mb-2">Стикеры</h1>
+          <h1 className="text-2xl md:text-3xl font-serif font-semibold mb-2">Стикеры</h1>
           <p className="text-muted-foreground text-sm">Запросы на покупку и поиск монет от участников клуба</p>
         </div>
 

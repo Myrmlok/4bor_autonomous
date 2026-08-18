@@ -22,7 +22,7 @@ export function Sidebar() {
   });
 
   return (
-    <aside className="w-80 flex-shrink-0 bg-sidebar border-l border-sidebar-border h-[calc(100vh-4rem)] overflow-y-auto flex flex-col hidden lg:flex">
+    <aside className="w-80 flex-shrink-0 bg-sidebar border-l border-sidebar-border sticky top-16 self-start max-h-[calc(100vh-4rem)] overflow-y-auto flex flex-col hidden lg:flex">
       
       {/* Stats Block */}
       <div className="p-6 border-b border-sidebar-border">

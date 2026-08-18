@@ -1,0 +1,22 @@
+{
+  "name": "4BOR Клуб",
+  "short_name": "4BOR",
+  "description": "Закрытый клуб дилеров и коллекционеров монет",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e3461",
+  "theme_color": "#1e3461",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.svg",
+      "sizes": "180x180",
+      "type": "image/svg+xml"
+    }
+  ]
+}

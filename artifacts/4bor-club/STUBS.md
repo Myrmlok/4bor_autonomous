@@ -163,6 +163,43 @@
 
 ---
 
+---
+
+## 12. Форум
+
+### `src/data/forum-mock.ts`
+Все данные форума — статические заглушки.
+
+| Экспорт | Что заменить | Эндпоинт |
+|---|---|---|
+| `forumCategories` | Категории форума | `GET /api/forum/categories` |
+| `forumThreads` | Список тем | `GET /api/forum/categories/:id/threads` |
+| `forumPosts` | Сообщения | `GET /api/forum/threads/:id/posts` |
+
+### `src/contexts/ForumContext.tsx`
+| Заглушка | Описание | Заменить на |
+|---|---|---|
+| `createThread()` | Тема создаётся только в памяти | `POST /api/forum/categories/:id/threads { title, body }` |
+| `addPost()` | Ответ добавляется только в памяти | `POST /api/forum/threads/:id/posts { body, quotedPostId? }` |
+| `toggleLike()` | Лайки хранятся в `Set` в памяти | `POST /api/forum/posts/:id/like` / `DELETE /api/forum/posts/:id/like` |
+| `likedPosts` | Нет персистентности лайков | Хранить в БД, возвращать с постами поле `isLikedByMe` |
+
+### `src/pages/forum/ForumIndex.tsx`
+- Счётчик «148 участников» — захардкожен. Заменить на `GET /api/stats`.
+- Счётчики тем/сообщений считаются из локальных массивов (OK, но без пагинации).
+
+### `src/pages/forum/ForumCategory.tsx`
+- Нет пагинации тем. Заменить на `GET /api/forum/categories/:id/threads?page=1&limit=20`.
+- Счётчик просмотров `views` не инкрементируется при открытии темы. `PATCH /api/forum/threads/:id/view`.
+
+### `src/pages/forum/ForumThread.tsx`
+- Нет пагинации постов. Все посты загружаются сразу. Добавить `GET /api/forum/threads/:id/posts?page=1&limit=30`.
+- Нет уведомлений о новых ответах (WebSocket / polling).
+- Редактирование/удаление постов не реализовано (планируется `PATCH`/`DELETE /api/forum/posts/:id`).
+- Цитирование — только визуальное, без сохранения `quotedPostId` на бэкенде — нужно передавать в теле запроса.
+
+---
+
 ## Приоритеты при подключении бэкенда
 
 1. **Высокий**: Auth (JWT) + Лоты (API) + Корзина + Заказы

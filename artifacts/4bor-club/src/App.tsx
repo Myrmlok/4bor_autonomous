@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { CartProvider } from '@/contexts/CartContext';
+import { ForumProvider } from '@/contexts/ForumContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 
 // Pages
@@ -24,6 +25,11 @@ import Profile from '@/pages/Profile';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import NotFound from '@/pages/not-found';
+
+// Forum
+import ForumIndex from '@/pages/forum/ForumIndex';
+import ForumCategory from '@/pages/forum/ForumCategory';
+import ForumThread from '@/pages/forum/ForumThread';
 
 // Admin Pages
 import AdminDashboard from '@/pages/admin/AdminDashboard';
@@ -91,6 +97,17 @@ function AppRoutes() {
           <MainLayout><Profile /></MainLayout>
         </Route>
 
+        {/* Forum — more-specific routes first */}
+        <Route path="/forum">
+          <MainLayout><ForumIndex /></MainLayout>
+        </Route>
+        <Route path="/forum/thread/:threadId">
+          <MainLayout><ForumThread /></MainLayout>
+        </Route>
+        <Route path="/forum/:categoryId">
+          <MainLayout><ForumCategory /></MainLayout>
+        </Route>
+
         {/* Admin routes */}
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/admin/users" component={AdminUsers} />
@@ -111,9 +128,11 @@ function App() {
       <TooltipProvider>
         <AuthProvider>
           <CartProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-              <AppRoutes />
-            </WouterRouter>
+            <ForumProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+                <AppRoutes />
+              </WouterRouter>
+            </ForumProvider>
           </CartProvider>
         </AuthProvider>
         <Toaster />
