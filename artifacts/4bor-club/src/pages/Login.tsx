@@ -1,67 +1,156 @@
 import React, { useState } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '../contexts/AuthContext';
-import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
-import { Card, CardContent } from '../components/ui/card';
+import { DEMO_ACCOUNTS, DEMO_INVITES, type User } from '../lib/demo-accounts';
+import { Loader2, Copy, Check } from 'lucide-react';
 
 export default function Login() {
   const [loginName, setLoginName] = useState('');
-  const { login } = useAuth();
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isPending, setIsPending] = useState(false);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const { login, loginAs } = useAuth();
   const [, setLocation] = useLocation();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (loginName.trim()) {
-      login(loginName);
-      setLocation('/');
-    }
+    setError('');
+    setIsPending(true);
+    setTimeout(() => {
+      const ok = login(loginName.trim(), password);
+      if (ok) {
+        setLocation('/');
+      } else {
+        setError('Неверный логин или пароль.');
+      }
+      setIsPending(false);
+    }, 400);
   };
+
+  const handleQuickLogin = (account: typeof DEMO_ACCOUNTS[0]) => {
+    const { password: _, ...u } = account;
+    loginAs(u);
+    setLocation('/');
+  };
+
+  const getInviteUrl = (token: string) => `${window.location.origin}/register/${token}`;
+
+  const copyInvite = async (token: string) => {
+    await navigator.clipboard.writeText(getInviteUrl(token));
+    setCopiedToken(token);
+    setTimeout(() => setCopiedToken(null), 2000);
+  };
+
+  const ROLE_COLORS: Record<string, string> = {
+    dealer: 'bg-primary/20 text-primary border-primary/30',
+    collector: 'bg-blue-500/20 text-blue-300 border-blue-400/30',
+    admin: 'bg-purple-500/20 text-purple-300 border-purple-400/30',
+  };
+  const ROLE_RU: Record<string, string> = { dealer: 'Дилер', collector: 'Коллекционер', admin: 'Администратор' };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-secondary p-4 relative overflow-hidden">
-      <div className="absolute inset-0 opacity-10 bg-[url('/images/hero-bg.jpg')] bg-cover bg-center"></div>
-      
-      <Card className="w-full max-w-md relative z-10 border-white/10 shadow-2xl">
-        <div className="p-8 pb-0 text-center">
-          <div className="font-serif text-2xl tracking-wider font-semibold mb-2">
-            <span className="text-foreground">4BOR</span>
-            <span className="text-primary ml-2">/ КЛУБ</span>
+      <div className="absolute inset-0 opacity-8 bg-[url('/images/hero-bg.jpg')] bg-cover bg-center pointer-events-none" />
+
+      <div className="w-full max-w-[880px] relative z-10 flex gap-6 items-start">
+
+        {/* LEFT: Login form */}
+        <div className="flex-1 bg-secondary/80 border border-white/10 backdrop-blur-sm p-8 shadow-2xl">
+          <div className="text-center mb-8">
+            <div className="font-serif text-3xl tracking-widest font-semibold mb-2">
+              <span className="text-white">4BOR</span>
+              <span className="text-primary"> / КЛУБ</span>
+            </div>
+            <p className="text-sm text-white/50 uppercase tracking-widest">Вход в закрытый клуб</p>
           </div>
-          <p className="text-sm text-muted-foreground">Закрытое пространство для нумизматов</p>
-        </div>
-        
-        <CardContent className="p-8">
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Input 
-                placeholder="Логин или Email" 
-                value={loginName}
-                onChange={e => setLoginName(e.target.value)}
-                required
-                className="h-12"
-              />
-            </div>
-            <div>
-              <Input 
-                type="password"
-                placeholder="Пароль" 
-                required
-                className="h-12"
-              />
-            </div>
-            <Button type="submit" className="w-full h-12 text-base mt-2">
-              Войти в Клуб
-            </Button>
+            <input
+              type="text"
+              placeholder="Логин или Email"
+              value={loginName}
+              onChange={e => setLoginName(e.target.value)}
+              required
+              autoComplete="username"
+              className="w-full bg-white/5 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-primary/60 transition-colors"
+            />
+            <input
+              type="password"
+              placeholder="Пароль"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              className="w-full bg-white/5 border border-white/10 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-primary/60 transition-colors"
+            />
+            {error && <p className="text-red-400 text-xs text-center">{error}</p>}
+            <button
+              type="submit"
+              disabled={isPending}
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-sm py-3 transition-colors flex items-center justify-center gap-2 h-12 disabled:opacity-60"
+            >
+              {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Войти в Клуб'}
+            </button>
           </form>
-          
-          <div className="mt-8 text-center border-t pt-6">
-            <p className="text-xs text-muted-foreground uppercase tracking-widest font-medium">
-              Доступ только по приглашениям.
-            </p>
+
+          <p className="mt-8 text-center text-xs text-white/30 uppercase tracking-widest border-t border-white/10 pt-6">
+            Доступ только по приглашениям
+          </p>
+        </div>
+
+        {/* RIGHT: Demo panel */}
+        <div className="w-72 shrink-0 flex flex-col gap-4">
+
+          {/* Quick login accounts */}
+          <div className="bg-secondary/80 border border-white/10 backdrop-blur-sm p-5 shadow-xl">
+            <p className="text-[10px] text-white/40 uppercase tracking-widest mb-3 font-medium">Демо-аккаунты (пароль: 123)</p>
+            <div className="flex flex-col gap-2">
+              {DEMO_ACCOUNTS.map(acc => (
+                <button
+                  key={acc.id}
+                  onClick={() => handleQuickLogin(acc)}
+                  className={`flex items-center justify-between border px-3 py-2.5 text-left transition-all hover:bg-white/5 group ${ROLE_COLORS[acc.role]}`}
+                >
+                  <div>
+                    <div className="text-sm font-medium">{acc.login}</div>
+                    <div className="text-[10px] opacity-70">{acc.email}</div>
+                  </div>
+                  <span className="text-[10px] font-semibold uppercase tracking-wide opacity-70 group-hover:opacity-100">
+                    {ROLE_RU[acc.role]}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
-        </CardContent>
-      </Card>
+
+          {/* Demo invite links */}
+          <div className="bg-secondary/80 border border-white/10 backdrop-blur-sm p-5 shadow-xl">
+            <p className="text-[10px] text-white/40 uppercase tracking-widest mb-3 font-medium">Инвайт-ссылки (демо)</p>
+            <div className="flex flex-col gap-2">
+              {Object.entries(DEMO_INVITES).map(([token, { label }]) => (
+                <div key={token} className="flex items-center justify-between border border-white/10 px-3 py-2 gap-2">
+                  <div>
+                    <div className="text-xs text-white/80 font-medium">{label}</div>
+                    <div className="text-[10px] text-white/30 font-mono truncate max-w-[140px]">{token.slice(0, 20)}…</div>
+                  </div>
+                  <button
+                    onClick={() => copyInvite(token)}
+                    className="text-white/50 hover:text-primary transition-colors shrink-0"
+                    title="Скопировать ссылку"
+                  >
+                    {copiedToken === token ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+              ))}
+              <p className="text-[10px] text-white/30 leading-tight mt-1">
+                Скопируйте ссылку и откройте в браузере — попадёте на страницу регистрации с нужной ролью.
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
     </div>
   );
 }

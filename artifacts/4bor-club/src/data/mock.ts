@@ -2,14 +2,6 @@ export type Role = 'admin' | 'dealer' | 'collector';
 export type LotStatus = 'active' | 'sold';
 export type LotFormat = 'fixed' | 'auction';
 
-export interface User {
-  id: number;
-  login: string;
-  email: string;
-  role: Role;
-  createdAt: string;
-}
-
 export interface Theme {
   id: string;
   slug: string;
@@ -61,14 +53,6 @@ export interface Activity {
   text: string;
   timeAgo: string;
 }
-
-export const mockUser: User = {
-  id: 1,
-  login: "dealer_test",
-  email: "test@4bor.ru",
-  role: "dealer",
-  createdAt: "2024-01-15"
-};
 
 export const themes: Theme[] = [
   { id: '1', slug: 'medieval-coins', name: 'Средневековые монеты', imageUrl: '/images/theme-medieval.jpg' },

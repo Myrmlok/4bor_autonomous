@@ -3,7 +3,7 @@ import { Link, useLocation } from 'wouter';
 import { RequireAdmin } from './RequireAdmin';
 import { Card, CardContent } from '../../components/ui/card';
 import { Users, Gavel, FileText, Settings, Ticket } from 'lucide-react';
-import { lots, stickers, themes, mockUser } from '../../data/mock';
+import { lots, stickers, themes } from '../../data/mock';
 
 function AdminSidebar() {
   const [location] = useLocation();
