@@ -181,8 +181,8 @@
 |---|---|---|
 | `createThread()` | Тема создаётся только в памяти | `POST /api/forum/categories/:id/threads { title, body }` |
 | `addPost()` | Ответ добавляется только в памяти | `POST /api/forum/threads/:id/posts { body, quotedPostId? }` |
-| `toggleLike()` | Лайки хранятся в `Set` в памяти | `POST /api/forum/posts/:id/like` / `DELETE /api/forum/posts/:id/like` |
-| `likedPosts` | Нет персистентности лайков | Хранить в БД, возвращать с постами поле `isLikedByMe` |
+| `toggleLike()` | Лайки хранятся в `Set` в памяти, **персистируются в localStorage** | `POST /api/forum/posts/:id/like` / `DELETE /api/forum/posts/:id/like` |
+| `likedPosts` | Персистируются в `4bor_forum` до очистки браузера | Хранить в БД, возвращать с постами поле `isLikedByMe` |
 
 ### `src/pages/forum/ForumIndex.tsx`
 - Счётчик «148 участников» — захардкожен. Заменить на `GET /api/stats`.

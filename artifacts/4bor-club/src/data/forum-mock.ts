@@ -33,6 +33,7 @@ export interface ForumPost {
   likes: number;
   isOp: boolean;             // original post (first in thread)
   quotedPostId?: string;     // quoted post reference
+  editedAt?: string;         // set when post is edited
 }
 
 // ─── Categories ─────────────────────────────────────────────────────────────
