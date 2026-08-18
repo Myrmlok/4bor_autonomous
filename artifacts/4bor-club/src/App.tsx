@@ -1,0 +1,118 @@
+import { type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ErrorBoundary } from '@/components/error-boundary';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
+import { AuthProvider } from '@/contexts/AuthContext';
+import { AppLayout } from '@/components/layout/AppLayout';
+
+// Pages
+import Home from '@/pages/Home';
+import Catalog, { CatalogTheme } from '@/pages/Catalog';
+import CatalogGroup from '@/pages/CatalogGroup';
+import LotDetail from '@/pages/LotDetail';
+import Auctions from '@/pages/Auctions';
+import Exclusives from '@/pages/Exclusives';
+import Liquidation from '@/pages/Liquidation';
+import Stickers from '@/pages/Stickers';
+import News from '@/pages/News';
+import Cart from '@/pages/Cart';
+import Profile from '@/pages/Profile';
+import Login from '@/pages/Login';
+import Register from '@/pages/Register';
+import NotFound from '@/pages/not-found';
+
+// Admin Pages
+import AdminDashboard from '@/pages/admin/AdminDashboard';
+import AdminUsers from '@/pages/admin/AdminUsers';
+import AdminInvites from '@/pages/admin/AdminInvites';
+import AdminLots from '@/pages/admin/AdminLots';
+
+const queryClient = new QueryClient();
+
+function RoutedErrorBoundary({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  return <ErrorBoundary resetKey={location}>{children}</ErrorBoundary>;
+}
+
+function MainLayout({ children }: { children: ReactNode }) {
+  return <AppLayout>{children}</AppLayout>;
+}
+
+function AppRoutes() {
+  return (
+    <RoutedErrorBoundary>
+      <Switch>
+        {/* Auth routes without layout */}
+        <Route path="/login" component={Login} />
+        <Route path="/register/:token" component={Register} />
+
+        {/* Main routes with layout */}
+        <Route path="/">
+          <MainLayout><Home /></MainLayout>
+        </Route>
+        <Route path="/catalog">
+          <MainLayout><Catalog /></MainLayout>
+        </Route>
+        <Route path="/catalog/:themeId">
+          <MainLayout><CatalogTheme /></MainLayout>
+        </Route>
+        <Route path="/catalog/:themeId/groups/:groupId">
+          <MainLayout><CatalogGroup /></MainLayout>
+        </Route>
+        <Route path="/lots/:id">
+          <MainLayout><LotDetail /></MainLayout>
+        </Route>
+        <Route path="/auctions">
+          <MainLayout><Auctions /></MainLayout>
+        </Route>
+        <Route path="/exclusives">
+          <MainLayout><Exclusives /></MainLayout>
+        </Route>
+        <Route path="/liquidation">
+          <MainLayout><Liquidation /></MainLayout>
+        </Route>
+        <Route path="/stickers">
+          <MainLayout><Stickers /></MainLayout>
+        </Route>
+        <Route path="/news">
+          <MainLayout><News /></MainLayout>
+        </Route>
+        <Route path="/cart">
+          <MainLayout><Cart /></MainLayout>
+        </Route>
+        <Route path="/profile">
+          <MainLayout><Profile /></MainLayout>
+        </Route>
+
+        {/* Admin routes (layout included in components) */}
+        <Route path="/admin" component={AdminDashboard} />
+        <Route path="/admin/users" component={AdminUsers} />
+        <Route path="/admin/invites" component={AdminInvites} />
+        <Route path="/admin/lots" component={AdminLots} />
+
+        <Route>
+          <MainLayout><NotFound /></MainLayout>
+        </Route>
+      </Switch>
+    </RoutedErrorBoundary>
+  );
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <AuthProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+            <AppRoutes />
+          </WouterRouter>
+        </AuthProvider>
+        <Toaster />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default App;
