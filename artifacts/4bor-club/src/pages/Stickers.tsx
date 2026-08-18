@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { stickers as initialStickers, themes } from '../data/mock';
+import React, { useState, useEffect } from 'react';
+import { stickers as initialStickers, themes, type Sticker } from '../data/mock';
 import { formatPrice } from '../lib/format';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -11,10 +11,23 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/use-toast';
 import { Plus, MessageSquare, X } from 'lucide-react';
 
+const STICKERS_KEY = '4bor_stickers';
+
 export default function Stickers() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [stickersList, setStickersList] = useState(initialStickers);
+  const [stickersList, setStickersList] = useState<Sticker[]>(() => {
+    try {
+      const saved = localStorage.getItem(STICKERS_KEY);
+      return saved ? (JSON.parse(saved) as Sticker[]) : initialStickers;
+    } catch {
+      return initialStickers;
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(STICKERS_KEY, JSON.stringify(stickersList));
+  }, [stickersList]);
 
   // Create sticker dialog
   const [createOpen, setCreateOpen] = useState(false);

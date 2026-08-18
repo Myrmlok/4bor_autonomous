@@ -1,11 +1,32 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   forumCategories, forumThreads, forumPosts,
   type ForumCategory, type ForumThread, type ForumPost,
 } from '../data/forum-mock';
 import type { Role } from '../data/mock';
 
-// ─── Input shapes ────────────────────────────────────────────────────────────
+// ─── localStorage persistence ─────────────────────────────────────────────────
+
+const STORAGE_KEY = '4bor_forum';
+
+function loadFromStorage() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    return {
+      threads:          parsed.threads          as ForumThread[],
+      posts:            parsed.posts            as ForumPost[],
+      likedPosts:       new Set<string>(parsed.likedPosts       as string[]),
+      bookmarkedThreads:new Set<string>(parsed.bookmarkedThreads as string[]),
+      seenThreads:      parsed.seenThreads      as Record<string, number>,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ─── Input shapes ─────────────────────────────────────────────────────────────
 
 interface NewThread {
   categoryId: string;
@@ -23,7 +44,7 @@ interface NewPost {
   quotedPostId?: string;
 }
 
-// ─── Context value ────────────────────────────────────────────────────────────
+// ─── Context value ─────────────────────────────────────────────────────────────
 
 interface ForumContextValue {
   categories: ForumCategory[];
@@ -43,9 +64,9 @@ interface ForumContextValue {
   markThreadSeen:  (threadId: string, postCount: number) => void;
 
   // State sets
-  likedPosts:      Set<string>;
+  likedPosts:        Set<string>;
   bookmarkedThreads: Set<string>;
-  seenThreads:     Record<string, number>;
+  seenThreads:       Record<string, number>;
 
   // Queries
   getThreadPosts:      (threadId: string)  => ForumPost[];
@@ -63,11 +84,23 @@ const ForumContext = createContext<ForumContextValue | null>(null);
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function ForumProvider({ children }: { children: React.ReactNode }) {
-  const [threads,    setThreads]    = useState<ForumThread[]>(forumThreads);
-  const [posts,      setPosts]      = useState<ForumPost[]>(forumPosts);
-  const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
-  const [bookmarkedThreads, setBookmarked] = useState<Set<string>>(new Set());
-  const [seenThreads, setSeenThreads] = useState<Record<string, number>>({});
+  const saved = loadFromStorage();
+  const [threads,           setThreads]    = useState<ForumThread[]>(saved?.threads          ?? forumThreads);
+  const [posts,             setPosts]      = useState<ForumPost[]>(saved?.posts              ?? forumPosts);
+  const [likedPosts,        setLikedPosts] = useState<Set<string>>(saved?.likedPosts         ?? new Set());
+  const [bookmarkedThreads, setBookmarked] = useState<Set<string>>(saved?.bookmarkedThreads  ?? new Set());
+  const [seenThreads,       setSeenThreads]= useState<Record<string, number>>(saved?.seenThreads ?? {});
+
+  // Persist all state to localStorage on every change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      threads,
+      posts,
+      likedPosts:        Array.from(likedPosts),
+      bookmarkedThreads: Array.from(bookmarkedThreads),
+      seenThreads,
+    }));
+  }, [threads, posts, likedPosts, bookmarkedThreads, seenThreads]);
 
   // ── Thread creation ────────────────────────────────────────────────────────
   const createThread = useCallback((data: NewThread): ForumThread => {
@@ -189,8 +222,8 @@ export function ForumProvider({ children }: { children: React.ReactNode }) {
     sort: 'latest' | 'replies' | 'views' = 'latest',
   ): ForumThread[] => {
     const cat = threads.filter(t => t.categoryId === categoryId);
-    const pinned    = cat.filter(t => t.isPinned);
-    const unpinned  = cat.filter(t => !t.isPinned);
+    const pinned   = cat.filter(t => t.isPinned);
+    const unpinned = cat.filter(t => !t.isPinned);
 
     const sorted = unpinned.sort((a, b) => {
       if (sort === 'views') return b.views - a.views;
