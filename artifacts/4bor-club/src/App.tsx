@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { CartProvider } from '@/contexts/CartContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 
 // Pages
@@ -17,6 +18,7 @@ import Exclusives from '@/pages/Exclusives';
 import Liquidation from '@/pages/Liquidation';
 import Stickers from '@/pages/Stickers';
 import News from '@/pages/News';
+import NewsDetail from '@/pages/NewsDetail';
 import Cart from '@/pages/Cart';
 import Profile from '@/pages/Profile';
 import Login from '@/pages/Login';
@@ -44,7 +46,7 @@ function AppRoutes() {
   return (
     <RoutedErrorBoundary>
       <Switch>
-        {/* Auth routes without layout */}
+        {/* Auth routes — no layout */}
         <Route path="/login" component={Login} />
         <Route path="/register/:token" component={Register} />
 
@@ -79,6 +81,9 @@ function AppRoutes() {
         <Route path="/news">
           <MainLayout><News /></MainLayout>
         </Route>
+        <Route path="/news/:id">
+          <MainLayout><NewsDetail /></MainLayout>
+        </Route>
         <Route path="/cart">
           <MainLayout><Cart /></MainLayout>
         </Route>
@@ -86,7 +91,7 @@ function AppRoutes() {
           <MainLayout><Profile /></MainLayout>
         </Route>
 
-        {/* Admin routes (layout included in components) */}
+        {/* Admin routes */}
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/invites" component={AdminInvites} />
@@ -105,9 +110,11 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-            <AppRoutes />
-          </WouterRouter>
+          <CartProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+              <AppRoutes />
+            </WouterRouter>
+          </CartProvider>
         </AuthProvider>
         <Toaster />
       </TooltipProvider>

@@ -1,8 +1,17 @@
 import React, { useState } from 'react';
-import { useLocation, useParams } from 'wouter';
+import { Link, useLocation, useParams } from 'wouter';
 import { useAuth } from '../contexts/AuthContext';
 import { DEMO_INVITES } from '../lib/demo-accounts';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import type { Role } from '../data/mock';
+
+// Accept tokens either from DEMO_INVITES dict or by prefix (dealer-xxx, collector-xxx)
+function resolveInvite(token: string): { role: Role; label: string } | null {
+  if (DEMO_INVITES[token]) return DEMO_INVITES[token];
+  if (token.startsWith('dealer-')) return { role: 'dealer', label: 'Дилер' };
+  if (token.startsWith('collector-')) return { role: 'collector', label: 'Коллекционер' };
+  return null;
+}
 
 export default function Register() {
   const { token } = useParams<{ token: string }>();
@@ -15,16 +24,19 @@ export default function Register() {
   const { registerWithInvite } = useAuth();
   const [, setLocation] = useLocation();
 
-  const invite = token ? DEMO_INVITES[token] : null;
+  const invite = token ? resolveInvite(token) : null;
   const ROLE_RU: Record<string, string> = { dealer: 'Дилер', collector: 'Коллекционер' };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (password !== password2) { setError('Пароли не совпадают.'); return; }
-    if (password.length < 3) { setError('Пароль слишком короткий.'); return; }
+    if (password.length < 3) { setError('Пароль слишком короткий (минимум 3 символа).'); return; }
+    if (!loginName.trim()) { setError('Введите логин.'); return; }
     setIsPending(true);
     setTimeout(() => {
+      // [STUB] registerWithInvite создаёт пользователя только в памяти (localStorage).
+      // При подключении бэкенда: POST /api/auth/register { token, login, email, password }
       const result = registerWithInvite(token || '', loginName, email);
       if (result.ok) {
         setLocation('/');
@@ -49,22 +61,23 @@ export default function Register() {
         </div>
 
         <div className="bg-secondary/80 border border-white/10 backdrop-blur-sm p-8 shadow-2xl">
-
           {/* Invite status */}
           {invite ? (
             <div className="flex items-center gap-2 border border-primary/30 bg-primary/10 px-4 py-3 mb-6">
               <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
               <div>
                 <p className="text-xs text-primary font-medium">Приглашение действительно</p>
-                <p className="text-[11px] text-white/50">Роль в Клубе: <span className="text-white/80 font-medium">{ROLE_RU[invite.role] ?? invite.role}</span></p>
+                <p className="text-[11px] text-white/50">
+                  Роль в Клубе: <span className="text-white/80 font-medium">{ROLE_RU[invite.role] ?? invite.role}</span>
+                </p>
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-2 border border-red-500/30 bg-red-500/10 px-4 py-3 mb-6">
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
               <div>
-                <p className="text-xs text-red-400 font-medium">Недействительная ссылка</p>
-                <p className="text-[11px] text-white/40">Токен: <span className="font-mono">{token?.slice(0, 16)}…</span></p>
+                <p className="text-xs text-red-400 font-medium">Недействительная или устаревшая ссылка</p>
+                <p className="text-[11px] text-white/40">Токен: <span className="font-mono">{token?.slice(0, 20)}</span></p>
               </div>
             </div>
           )}
@@ -124,7 +137,7 @@ export default function Register() {
 
           <p className="mt-6 text-center text-xs text-white/30">
             Уже есть аккаунт?{' '}
-            <a href="/login" className="text-primary hover:underline">Войти</a>
+            <Link href="/login" className="text-primary hover:underline">Войти</Link>
           </p>
         </div>
       </div>

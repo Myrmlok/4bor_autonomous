@@ -81,7 +81,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const registerWithInvite = (token: string, loginName: string, email: string): { ok: boolean; error?: string } => {
-    const invite = DEMO_INVITES[token];
+    // Accept known demo tokens OR any token prefixed with role name (dealer-xxx, collector-xxx)
+    const invite =
+      DEMO_INVITES[token] ||
+      (token.startsWith('dealer-') ? { role: 'dealer' as Role, label: 'Дилер' } :
+       token.startsWith('collector-') ? { role: 'collector' as Role, label: 'Коллекционер' } :
+       null);
     if (!invite) return { ok: false, error: 'Недействительная пригласительная ссылка.' };
     if (!loginName.trim()) return { ok: false, error: 'Укажите логин.' };
     if (!email.trim()) return { ok: false, error: 'Укажите email.' };

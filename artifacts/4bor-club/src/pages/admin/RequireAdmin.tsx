@@ -3,18 +3,27 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLocation } from 'wouter';
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [, setLocation] = useLocation();
 
   React.useEffect(() => {
-    if (user && user.role !== 'admin') {
+    if (isLoading) return;
+    if (!user) {
+      setLocation('/login');
+    } else if (user.role !== 'admin') {
       setLocation('/');
     }
-  }, [user, setLocation]);
+  }, [user, isLoading, setLocation]);
 
-  if (!user || user.role !== 'admin') {
-    return null; // or loading
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
+
+  if (!user || user.role !== 'admin') return null;
 
   return <>{children}</>;
 }

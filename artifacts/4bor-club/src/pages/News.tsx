@@ -1,14 +1,13 @@
 import React from 'react';
 import { Link } from 'wouter';
 import { newsList } from '../data/mock';
-import { Lock } from 'lucide-react';
+import { Lock, Calendar } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useAuth } from '../contexts/AuthContext';
-import { Card } from '../components/ui/card';
 
 export default function News() {
   const { user } = useAuth();
-  
+
   if (user?.role === 'collector') {
     return (
       <div className="p-8 flex items-center justify-center min-h-[60vh]">
@@ -20,9 +19,7 @@ export default function News() {
           <p className="text-muted-foreground mb-8">
             Новости клуба доступны только для дилеров.
           </p>
-          <Link href="/">
-            <Button variant="outline">На главную</Button>
-          </Link>
+          <Link href="/"><Button variant="outline">На главную</Button></Link>
         </div>
       </div>
     );
@@ -30,38 +27,35 @@ export default function News() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-serif font-semibold mb-8">Новости клуба</h1>
-      
-      <div className="space-y-8">
+      <h1 className="text-3xl font-serif font-semibold mb-2">Новости клуба</h1>
+      <p className="text-muted-foreground mb-8 text-sm">Актуальная информация для участников</p>
+
+      <div className="space-y-6">
         {newsList.map(news => (
-          <Card key={news.id} className="overflow-hidden hover-elevate">
+          <Link key={news.id} href={`/news/${news.id}`} className="group block border border-border/50 bg-card overflow-hidden hover:border-primary/40 transition-colors">
             <div className="flex flex-col md:flex-row">
-              <div className="w-full md:w-1/3 aspect-video md:aspect-auto">
-                <img 
-                  src={news.imageUrl} 
-                  alt={news.title} 
-                  className="w-full h-full object-cover" 
+              <div className="w-full md:w-72 h-48 md:h-auto flex-shrink-0 overflow-hidden bg-muted">
+                <img
+                  src={news.imageUrl}
+                  alt={news.title}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
               </div>
-              <div className="p-6 md:w-2/3 flex flex-col justify-center">
-                <div className="text-sm text-primary mb-2 font-mono">
-                  {new Date(news.date).toLocaleDateString('ru-RU')}
+              <div className="p-6 flex flex-col justify-center">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3 font-mono">
+                  <Calendar className="w-3 h-3" />
+                  {new Date(news.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
                 </div>
-                <h2 className="text-xl font-serif font-semibold mb-4 leading-tight">
+                <h2 className="text-xl font-serif font-semibold mb-3 leading-tight group-hover:text-primary transition-colors">
                   {news.title}
                 </h2>
-                <p className="text-muted-foreground text-sm line-clamp-3 mb-4">
-                  Подробная информация о данном событии доступна для участников клуба.
-                  Это краткий анонс из внутренней рассылки.
+                <p className="text-muted-foreground text-sm line-clamp-2 mb-4">
+                  Подробная информация о событии доступна для участников клуба. Нажмите для полного прочтения.
                 </p>
-                <div>
-                  <Button variant="link" className="p-0 h-auto text-primary">
-                    Читать полностью →
-                  </Button>
-                </div>
+                <span className="text-sm text-primary font-medium">Читать полностью →</span>
               </div>
             </div>
-          </Card>
+          </Link>
         ))}
       </div>
     </div>
