@@ -1,66 +1,100 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { Lot } from '../data/mock';
+import React, {
+  createContext, useContext, useEffect, useState, useCallback, type ReactNode,
+} from 'react';
+import { cart as cartApi, type ApiCartItem, type ApiLot } from '../lib/api-client';
+import { useAuth } from './AuthContext';
 
-export interface CartItem {
-  lot: Lot;
-  quantity: 1; // монеты всегда по 1 штуке
-  addedAt: string;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface CartLot {
+  id: string;
+  title: string;
+  description: string;
+  price?: number;
+  bidMin?: number;
+  bidMax?: number;
+  bidsCount: number;
+  format: 'fixed' | 'auction';
+  status: 'active' | 'sold';
+  imageUrl: string;
+  themeId: string;
+  groupId: string;
+  sectionType: 'auction' | 'exclusive' | 'liquidation';
+  createdAt: string;
 }
 
-interface CartContextType {
-  items: CartItem[];
-  count: number;
-  addItem: (lot: Lot) => void;
-  removeItem: (lotId: string) => void;
-  clearCart: () => void;
-  hasItem: (lotId: string) => boolean;
+interface CartContextValue {
+  items:        CartLot[];
+  count:        number;
+  loading:      boolean;
+  addItem:      (lot: CartLot) => Promise<void>;
+  removeItem:   (lotId: string) => Promise<void>;
+  clearCart:    () => Promise<void>;
+  isInCart:     (lotId: string) => boolean;
 }
 
-const CartContext = createContext<CartContextType | undefined>(undefined);
+// ─── Context ──────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = '4bor_cart';
+const CartContext = createContext<CartContextValue>({
+  items: [], count: 0, loading: false,
+  addItem: async () => {}, removeItem: async () => {}, clearCart: async () => {},
+  isInCart: () => false,
+});
 
-export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+function apiLotToCartLot(l: ApiLot): CartLot {
+  return {
+    id: l.id, title: l.title, description: l.description,
+    price: l.price, bidMin: l.bidMin, bidMax: l.bidMax, bidsCount: l.bidsCount,
+    format: l.format, status: l.status, imageUrl: l.imageUrl,
+    themeId: l.themeId, groupId: l.groupId,
+    sectionType: l.sectionType, createdAt: l.createdAt,
+  };
+}
 
-  // Persist to localStorage on every change
+export function CartProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const [items, setItems]     = useState<CartLot[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Reload cart whenever the logged-in user changes
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  }, [items]);
+    if (!user) { setItems([]); return; }
+    setLoading(true);
+    cartApi.get()
+      .then(data => setItems(data.map(i => apiLotToCartLot(i.lot as ApiLot))))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  }, [user]);
 
-  const addItem = (lot: Lot) => {
-    setItems(prev => {
-      if (prev.some(i => i.lot.id === lot.id)) return prev;
-      return [...prev, { lot, quantity: 1, addedAt: new Date().toISOString() }];
-    });
-  };
+  const addItem = useCallback(async (lot: CartLot) => {
+    if (!user) return;
+    await cartApi.add(lot.id);
+    setItems(prev => prev.some(i => i.id === lot.id) ? prev : [...prev, lot]);
+  }, [user]);
 
-  const removeItem = (lotId: string) => {
-    setItems(prev => prev.filter(i => i.lot.id !== lotId));
-  };
+  const removeItem = useCallback(async (lotId: string) => {
+    if (!user) return;
+    await cartApi.remove(lotId);
+    setItems(prev => prev.filter(i => i.id !== lotId));
+  }, [user]);
 
-  const clearCart = () => {
+  const clearCart = useCallback(async () => {
+    if (!user) return;
+    await cartApi.clear();
     setItems([]);
-  };
+  }, [user]);
 
-  const hasItem = (lotId: string) => items.some(i => i.lot.id === lotId);
+  const isInCart = useCallback((lotId: string) => items.some(i => i.id === lotId), [items]);
 
   return (
-    <CartContext.Provider value={{ items, count: items.length, addItem, removeItem, clearCart, hasItem }}>
+    <CartContext.Provider value={{
+      items, count: items.length, loading, addItem, removeItem, clearCart, isInCart,
+    }}>
       {children}
     </CartContext.Provider>
   );
 }
 
 export function useCart() {
-  const ctx = useContext(CartContext);
-  if (!ctx) throw new Error('useCart must be used within CartProvider');
-  return ctx;
+  return useContext(CartContext);
 }

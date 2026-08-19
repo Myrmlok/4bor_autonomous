@@ -1,288 +1,104 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import {
-  forumCategories, forumThreads, forumPosts,
-  type ForumCategory, type ForumThread, type ForumPost,
-} from '../data/forum-mock';
-import type { Role } from '../data/mock';
+// ForumContext now provides only static category definitions and no local state.
+// All data is fetched via React Query in the individual forum pages.
+// Mutation helpers are exposed here so pages don't import api-client directly.
 
-// ─── localStorage persistence ─────────────────────────────────────────────────
+import React, { createContext, useContext, useCallback, type ReactNode } from 'react';
+import { forum as forumApi } from '../lib/api-client';
 
-const STORAGE_KEY = '4bor_forum';
+// ─── Category type (mirrors backend static data) ──────────────────────────────
 
-function loadFromStorage() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return null;
-    const parsed = JSON.parse(saved);
-    return {
-      threads:          parsed.threads          as ForumThread[],
-      posts:            parsed.posts            as ForumPost[],
-      likedPosts:       new Set<string>(parsed.likedPosts       as string[]),
-      bookmarkedThreads:new Set<string>(parsed.bookmarkedThreads as string[]),
-      seenThreads:      parsed.seenThreads      as Record<string, number>,
-    };
-  } catch {
-    return null;
-  }
+export interface ForumCategory {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  accessRoles: string[];
+  isReadOnly: boolean;
 }
 
-// ─── Input shapes ─────────────────────────────────────────────────────────────
+// ─── Static list (same as server; no network call needed for this) ────────────
 
-interface NewThread {
-  categoryId: string;
-  title:      string;
-  body:       string;
-  authorLogin: string;
-  authorRole:  Role;
-}
+export const FORUM_CATEGORIES: ForumCategory[] = [
+  { id:'c-general',     title:'Общий чат',              description:'Знакомства, вопросы о клубе, общение участников',                 icon:'message-square', accessRoles:[],                    isReadOnly:false },
+  { id:'c-expertise',   title:'Экспертиза и атрибуция', description:'Определение монет, помощь с атрибуцией, экспертные оценки',       icon:'scan-search',    accessRoles:[],                    isReadOnly:false },
+  { id:'c-deals',       title:'Сделки и переговоры',    description:'Обсуждение сделок, поиск партнёров. Только для дилеров',          icon:'scale',          accessRoles:['dealer','admin'],    isReadOnly:false },
+  { id:'c-numizmatika', title:'Нумизматика',            description:'История монет, редкости, литература, каталоги и исследования',    icon:'book-open',      accessRoles:[],                    isReadOnly:false },
+  { id:'c-tech',        title:'Хранение и реставрация', description:'Чистка, консервация, капсулы, сейфы, советы по хранению',         icon:'shield',         accessRoles:[],                    isReadOnly:false },
+  { id:'c-announce',    title:'Объявления',             description:'Официальные объявления администрации клуба',                      icon:'bell',           accessRoles:[],                    isReadOnly:true  },
+];
 
-interface NewPost {
-  threadId:     string;
-  body:         string;
-  authorLogin:  string;
-  authorRole:   Role;
-  quotedPostId?: string;
-}
-
-// ─── Context value ─────────────────────────────────────────────────────────────
+// ─── Context ──────────────────────────────────────────────────────────────────
 
 interface ForumContextValue {
-  categories: ForumCategory[];
-  threads:    ForumThread[];
-  posts:      ForumPost[];
-
-  // CRUD
-  createThread:    (data: NewThread) => ForumThread;
-  addPost:         (data: NewPost) => ForumPost;
-  editPost:        (postId: string, body: string) => void;
-  deletePost:      (postId: string) => void;
-  toggleLike:      (postId: string) => void;
-  toggleLock:      (threadId: string) => void;   // admin only
-  togglePin:       (threadId: string) => void;   // admin only
-  toggleBookmark:  (threadId: string) => void;
-  incrementViews:  (threadId: string) => void;
-  markThreadSeen:  (threadId: string, postCount: number) => void;
-
-  // State sets
-  likedPosts:        Set<string>;
-  bookmarkedThreads: Set<string>;
-  seenThreads:       Record<string, number>;
-
-  // Queries
-  getThreadPosts:      (threadId: string)  => ForumPost[];
-  getCategoryThreads:  (categoryId: string, sort?: 'latest' | 'replies' | 'views') => ForumThread[];
-  getThreadById:       (threadId: string)  => ForumThread | undefined;
-  getCategoryById:     (categoryId: string)=> ForumCategory | undefined;
-  getUserPostCount:    (login: string)     => number;
-  searchThreads:       (q: string) => Array<ForumThread & { categoryTitle: string }>;
-  hasNewPosts:         (threadId: string)  => boolean;
-  getCategoryUnread:   (categoryId: string)=> number;
+  categories:      ForumCategory[];
+  createThread:    (catId: string, title: string, body: string)    => Promise<unknown>;
+  addPost:         (threadId: number, body: string, quotedPostId?: number) => Promise<unknown>;
+  editPost:        (postId: number, body: string)                  => Promise<unknown>;
+  deletePost:      (postId: number)                                => Promise<void>;
+  likePost:        (postId: number, liked: boolean)               => Promise<{ liked: boolean; likes: number }>;
+  bookmark:        (threadId: number, bookmarked: boolean)         => Promise<void>;
+  togglePin:       (threadId: number, isPinned: boolean)           => Promise<void>;
+  toggleLock:      (threadId: number, isLocked: boolean)           => Promise<void>;
+  incrementViews:  (threadId: number)                              => Promise<void>;
+  markSeen:        (threadId: number, postCount: number)           => Promise<void>;
+  searchThreads:   (q: string)                                     => Promise<unknown[]>;
 }
 
-const ForumContext = createContext<ForumContextValue | null>(null);
+const ForumContext = createContext<ForumContextValue>({
+  categories:     FORUM_CATEGORIES,
+  createThread:   async () => {},
+  addPost:        async () => {},
+  editPost:       async () => {},
+  deletePost:     async () => {},
+  likePost:       async () => ({ liked: false, likes: 0 }),
+  bookmark:       async () => {},
+  togglePin:      async () => {},
+  toggleLock:     async () => {},
+  incrementViews: async () => {},
+  markSeen:       async () => {},
+  searchThreads:  async () => [],
+});
 
-// ─── Provider ─────────────────────────────────────────────────────────────────
+export function ForumProvider({ children }: { children: ReactNode }) {
+  const createThread   = useCallback((catId: string, title: string, body: string) =>
+    forumApi.createThread(catId, title, body), []);
 
-export function ForumProvider({ children }: { children: React.ReactNode }) {
-  const saved = loadFromStorage();
-  const [threads,           setThreads]    = useState<ForumThread[]>(saved?.threads          ?? forumThreads);
-  const [posts,             setPosts]      = useState<ForumPost[]>(saved?.posts              ?? forumPosts);
-  const [likedPosts,        setLikedPosts] = useState<Set<string>>(saved?.likedPosts         ?? new Set());
-  const [bookmarkedThreads, setBookmarked] = useState<Set<string>>(saved?.bookmarkedThreads  ?? new Set());
-  const [seenThreads,       setSeenThreads]= useState<Record<string, number>>(saved?.seenThreads ?? {});
+  const addPost        = useCallback((threadId: number, body: string, quotedPostId?: number) =>
+    forumApi.addPost(threadId, body, quotedPostId), []);
 
-  // Persist all state to localStorage on every change
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      threads,
-      posts,
-      likedPosts:        Array.from(likedPosts),
-      bookmarkedThreads: Array.from(bookmarkedThreads),
-      seenThreads,
-    }));
-  }, [threads, posts, likedPosts, bookmarkedThreads, seenThreads]);
+  const editPost       = useCallback((postId: number, body: string) =>
+    forumApi.editPost(postId, body), []);
 
-  // ── Thread creation ────────────────────────────────────────────────────────
-  const createThread = useCallback((data: NewThread): ForumThread => {
-    const thread: ForumThread = {
-      id:          `t-user-${Date.now()}`,
-      categoryId:  data.categoryId,
-      title:       data.title,
-      authorLogin: data.authorLogin,
-      authorRole:  data.authorRole,
-      createdAt:   new Date().toISOString(),
-      isPinned:    false,
-      isLocked:    false,
-      views:       1,
-    };
-    const op: ForumPost = {
-      id:          `p-user-${Date.now()}`,
-      threadId:    thread.id,
-      authorLogin: data.authorLogin,
-      authorRole:  data.authorRole,
-      createdAt:   new Date().toISOString(),
-      body:        data.body,
-      likes:       0,
-      isOp:        true,
-    };
-    setThreads(prev => [thread, ...prev]);
-    setPosts(prev => [...prev, op]);
-    return thread;
-  }, []);
+  const deletePost     = useCallback((postId: number) =>
+    forumApi.deletePost(postId), []);
 
-  // ── Post CRUD ──────────────────────────────────────────────────────────────
-  const addPost = useCallback((data: NewPost): ForumPost => {
-    const post: ForumPost = {
-      id:           `p-user-${Date.now()}`,
-      threadId:     data.threadId,
-      authorLogin:  data.authorLogin,
-      authorRole:   data.authorRole,
-      createdAt:    new Date().toISOString(),
-      body:         data.body,
-      likes:        0,
-      isOp:         false,
-      quotedPostId: data.quotedPostId,
-    };
-    setPosts(prev => [...prev, post]);
-    return post;
-  }, []);
+  const likePost       = useCallback((postId: number, liked: boolean) =>
+    liked ? forumApi.unlikePost(postId) : forumApi.likePost(postId), []);
 
-  const editPost = useCallback((postId: string, body: string) => {
-    setPosts(prev => prev.map(p => p.id === postId ? { ...p, body, editedAt: new Date().toISOString() } : p));
-  }, []);
+  const bookmark       = useCallback((threadId: number, bookmarked: boolean) =>
+    bookmarked ? forumApi.unbookmark(threadId) : forumApi.bookmark(threadId).then(() => {}), []);
 
-  const deletePost = useCallback((postId: string) => {
-    setPosts(prev => prev.filter(p => p.id !== postId));
-  }, []);
+  const togglePin      = useCallback((threadId: number, isPinned: boolean) =>
+    forumApi.togglePin(threadId, isPinned), []);
 
-  // ── Likes ──────────────────────────────────────────────────────────────────
-  const toggleLike = useCallback((postId: string) => {
-    setLikedPosts(prev => {
-      const next = new Set(prev);
-      if (next.has(postId)) {
-        next.delete(postId);
-        setPosts(ps => ps.map(p => p.id === postId ? { ...p, likes: Math.max(0, p.likes - 1) } : p));
-      } else {
-        next.add(postId);
-        setPosts(ps => ps.map(p => p.id === postId ? { ...p, likes: p.likes + 1 } : p));
-      }
-      return next;
-    });
-  }, []);
+  const toggleLock     = useCallback((threadId: number, isLocked: boolean) =>
+    forumApi.toggleLock(threadId, isLocked), []);
 
-  // ── Moderation ─────────────────────────────────────────────────────────────
-  const toggleLock = useCallback((threadId: string) => {
-    setThreads(prev => prev.map(t => t.id === threadId ? { ...t, isLocked: !t.isLocked } : t));
-  }, []);
+  const incrementViews = useCallback((threadId: number) =>
+    forumApi.incrementViews(threadId), []);
 
-  const togglePin = useCallback((threadId: string) => {
-    setThreads(prev => prev.map(t => t.id === threadId ? { ...t, isPinned: !t.isPinned } : t));
-  }, []);
+  const markSeen       = useCallback((threadId: number, postCount: number) =>
+    forumApi.markSeen(threadId, postCount), []);
 
-  // ── Bookmarks ──────────────────────────────────────────────────────────────
-  const toggleBookmark = useCallback((threadId: string) => {
-    setBookmarked(prev => {
-      const next = new Set(prev);
-      next.has(threadId) ? next.delete(threadId) : next.add(threadId);
-      return next;
-    });
-  }, []);
-
-  // ── Views ──────────────────────────────────────────────────────────────────
-  const incrementViews = useCallback((threadId: string) => {
-    setThreads(prev => prev.map(t => t.id === threadId ? { ...t, views: t.views + 1 } : t));
-  }, []);
-
-  // ── Read tracking ──────────────────────────────────────────────────────────
-  const markThreadSeen = useCallback((threadId: string, postCount: number) => {
-    setSeenThreads(prev => ({ ...prev, [threadId]: postCount }));
-  }, []);
-
-  const hasNewPosts = useCallback((threadId: string): boolean => {
-    const count = posts.filter(p => p.threadId === threadId).length;
-    return (seenThreads[threadId] ?? 0) < count && count > 0;
-  }, [posts, seenThreads]);
-
-  const getCategoryUnread = useCallback((categoryId: string): number => {
-    return threads
-      .filter(t => t.categoryId === categoryId)
-      .filter(t => hasNewPosts(t.id))
-      .length;
-  }, [threads, hasNewPosts]);
-
-  // ── Queries ────────────────────────────────────────────────────────────────
-  const getThreadPosts = useCallback((threadId: string) =>
-    posts
-      .filter(p => p.threadId === threadId)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
-  [posts]);
-
-  const getCategoryThreads = useCallback((
-    categoryId: string,
-    sort: 'latest' | 'replies' | 'views' = 'latest',
-  ): ForumThread[] => {
-    const cat = threads.filter(t => t.categoryId === categoryId);
-    const pinned   = cat.filter(t => t.isPinned);
-    const unpinned = cat.filter(t => !t.isPinned);
-
-    const sorted = unpinned.sort((a, b) => {
-      if (sort === 'views') return b.views - a.views;
-      if (sort === 'replies') {
-        const ra = posts.filter(p => p.threadId === a.id).length;
-        const rb = posts.filter(p => p.threadId === b.id).length;
-        return rb - ra;
-      }
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-
-    return [...pinned, ...sorted];
-  }, [threads, posts]);
-
-  const getThreadById   = useCallback((id: string) => threads.find(t => t.id === id), [threads]);
-  const getCategoryById = useCallback((id: string) => forumCategories.find(c => c.id === id), []);
-
-  const getUserPostCount = useCallback((login: string) =>
-    posts.filter(p => p.authorLogin === login).length,
-  [posts]);
-
-  const searchThreads = useCallback((q: string) => {
-    if (!q.trim()) return [];
-    const lower = q.toLowerCase();
-    return threads
-      .filter(t => t.title.toLowerCase().includes(lower))
-      .map(t => ({
-        ...t,
-        categoryTitle: forumCategories.find(c => c.id === t.categoryId)?.title ?? '',
-      }))
-      .slice(0, 20);
-  }, [threads]);
+  const searchThreads  = useCallback((q: string) =>
+    forumApi.search(q), []);
 
   return (
     <ForumContext.Provider value={{
-      categories: forumCategories,
-      threads,
-      posts,
-      createThread,
-      addPost,
-      editPost,
-      deletePost,
-      toggleLike,
-      toggleLock,
-      togglePin,
-      toggleBookmark,
-      incrementViews,
-      markThreadSeen,
-      likedPosts,
-      bookmarkedThreads,
-      seenThreads,
-      getThreadPosts,
-      getCategoryThreads,
-      getThreadById,
-      getCategoryById,
-      getUserPostCount,
-      searchThreads,
-      hasNewPosts,
-      getCategoryUnread,
+      categories: FORUM_CATEGORIES,
+      createThread, addPost, editPost, deletePost,
+      likePost, bookmark, togglePin, toggleLock,
+      incrementViews, markSeen, searchThreads,
     }}>
       {children}
     </ForumContext.Provider>
@@ -290,7 +106,5 @@ export function ForumProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useForum() {
-  const ctx = useContext(ForumContext);
-  if (!ctx) throw new Error('useForum must be inside ForumProvider');
-  return ctx;
+  return useContext(ForumContext);
 }

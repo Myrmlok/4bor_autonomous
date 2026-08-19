@@ -1,19 +1,21 @@
 import React, { useState } from 'react';
 import { Link, useParams, useLocation } from 'wouter';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Pin, Lock, MessageSquare, Eye, ChevronRight, Plus,
   ScanSearch, Scale, BookOpen, Shield, Bell,
   type LucideProps,
 } from 'lucide-react';
-import { useForum } from '../../contexts/ForumContext';
+import { forum as forumApi } from '../../lib/api-client';
+import { useForum, FORUM_CATEGORIES } from '../../contexts/ForumContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { ROLE_LABELS } from '../../lib/format';
 import { Button } from '../../components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '../../components/ui/dialog';
-import type { Role } from '../../data/mock';
 
+type Role = 'admin' | 'dealer' | 'collector';
 type IconFC = React.FC<LucideProps>;
 const CATEGORY_ICONS: Record<string, IconFC> = {
   'message-square': MessageSquare,
@@ -23,7 +25,6 @@ const CATEGORY_ICONS: Record<string, IconFC> = {
   'shield':         Shield,
   'bell':           Bell,
 };
-
 const ROLE_COLOR: Record<Role, string> = {
   admin:     'text-purple-600',
   dealer:    'text-primary',
@@ -46,21 +47,25 @@ function formatRelative(iso: string) {
 
 export default function ForumCategory() {
   const { categoryId } = useParams<{ categoryId: string }>();
-  const [, setLocation]  = useLocation();
-  const {
-    getCategoryById, getCategoryThreads, getThreadPosts,
-    createThread, hasNewPosts,
-  } = useForum();
+  const [, setLocation] = useLocation();
+  const { createThread } = useForum();
   const { user } = useAuth();
+  const qc = useQueryClient();
 
-  const category = getCategoryById(categoryId);
-
-  const [sort, setSort]           = useState<SortMode>('latest');
+  const [sort, setSort]             = useState<SortMode>('latest');
   const [createOpen, setCreateOpen] = useState(false);
-  const [newTitle, setNewTitle]   = useState('');
-  const [newBody, setNewBody]     = useState('');
+  const [newTitle, setNewTitle]     = useState('');
+  const [newBody, setNewBody]       = useState('');
+  const [creating, setCreating]     = useState(false);
 
-  const threads = getCategoryThreads(categoryId, sort);
+  const category = FORUM_CATEGORIES.find(c => c.id === categoryId);
+
+  const { data: threads = [], isLoading } = useQuery({
+    queryKey: ['forum-threads', categoryId, sort],
+    queryFn:  () => forumApi.threads(categoryId!, sort),
+    enabled:  !!categoryId,
+    staleTime: 15_000,
+  });
 
   if (!category) {
     return (
@@ -78,7 +83,7 @@ export default function ForumCategory() {
         <h2 className="text-xl font-serif font-semibold mb-2">Раздел закрыт</h2>
         <p className="text-muted-foreground text-sm mb-6">
           Доступно только для:{' '}
-          {category.accessRoles.filter(r => r !== 'admin').map(r => ROLE_LABELS[r]).join(', ')}
+          {category.accessRoles.filter(r => r !== 'admin').map(r => ROLE_LABELS[r as Role] ?? r).join(', ')}
         </p>
         <Button variant="outline" onClick={() => setLocation('/forum')}>На форум</Button>
       </div>
@@ -87,20 +92,23 @@ export default function ForumCategory() {
 
   const canCreate = !!(user && (!category.isReadOnly || user.role === 'admin'));
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !newTitle.trim() || !newBody.trim()) return;
-    const thread = createThread({
-      categoryId,
-      title:       newTitle.trim(),
-      body:        newBody.trim(),
-      authorLogin: user.login,
-      authorRole:  user.role,
-    });
-    setCreateOpen(false);
-    setNewTitle('');
-    setNewBody('');
-    setLocation(`/forum/thread/${thread.id}`);
+    setCreating(true);
+    try {
+      const thread = await createThread(categoryId!, newTitle.trim(), newBody.trim()) as { id: number };
+      await qc.invalidateQueries({ queryKey: ['forum-threads', categoryId] });
+      await qc.invalidateQueries({ queryKey: ['forum-categories'] });
+      setCreateOpen(false);
+      setNewTitle('');
+      setNewBody('');
+      setLocation(`/forum/thread/${thread.id}`);
+    } catch (err) {
+      console.error('Create thread error', err);
+    } finally {
+      setCreating(false);
+    }
   };
 
   const Icon = CATEGORY_ICONS[category.icon] ?? MessageSquare;
@@ -158,8 +166,13 @@ export default function ForumCategory() {
         </div>
       )}
 
+      {/* Loading */}
+      {isLoading && (
+        <div className="py-12 text-center text-sm text-muted-foreground">Загрузка...</div>
+      )}
+
       {/* Thread list */}
-      {threads.length === 0 ? (
+      {!isLoading && threads.length === 0 ? (
         <div className="py-16 text-center border border-border/50 bg-card">
           <MessageSquare className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-muted-foreground">В этом разделе пока нет тем.</p>
@@ -180,65 +193,58 @@ export default function ForumCategory() {
           </div>
 
           <div className="divide-y divide-border/30">
-            {threads.map(thread => {
-              const threadPosts = getThreadPosts(thread.id);
-              const replyCount  = Math.max(0, threadPosts.length - 1);
-              const lastPost    = threadPosts[threadPosts.length - 1];
-              const isNew       = hasNewPosts(thread.id);
-
-              return (
-                <Link
-                  key={thread.id}
-                  href={`/forum/thread/${thread.id}`}
-                  className="flex md:grid md:grid-cols-[1fr_80px_60px_180px] items-start md:items-center gap-3 md:gap-0 px-4 py-3.5 hover:bg-muted/20 transition-colors group"
-                >
-                  {/* Title area */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      {thread.isPinned && <Pin className="w-3 h-3 text-primary flex-shrink-0" />}
-                      {thread.isLocked && <Lock className="w-3 h-3 text-muted-foreground/60 flex-shrink-0" />}
-                      <span className="font-medium text-sm group-hover:text-primary transition-colors line-clamp-2 leading-snug">
-                        {thread.title}
-                      </span>
-                      {isNew && (
-                        <span className="text-[9px] bg-primary text-primary-foreground px-1.5 py-0.5 font-bold uppercase tracking-wider shrink-0">NEW</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
-                      <span className={`font-medium ${ROLE_COLOR[thread.authorRole]}`}>{thread.authorLogin}</span>
-                      <span>{formatRelative(thread.createdAt)}</span>
-                      {/* Mobile stats */}
-                      <span className="md:hidden flex items-center gap-2">
-                        · <MessageSquare className="w-3 h-3 inline" /> {replyCount}
-                        · <Eye className="w-3 h-3 inline" /> {thread.views}
-                      </span>
-                    </div>
+            {threads.map(thread => (
+              <Link
+                key={thread.id}
+                href={`/forum/thread/${thread.id}`}
+                className="flex md:grid md:grid-cols-[1fr_80px_60px_180px] items-start md:items-center gap-3 md:gap-0 px-4 py-3.5 hover:bg-muted/20 transition-colors group"
+              >
+                {/* Title area */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    {thread.isPinned && <Pin className="w-3 h-3 text-primary flex-shrink-0" />}
+                    {thread.isLocked && <Lock className="w-3 h-3 text-muted-foreground/60 flex-shrink-0" />}
+                    <span className="font-medium text-sm group-hover:text-primary transition-colors line-clamp-2 leading-snug">
+                      {thread.title}
+                    </span>
+                    {thread.hasNewPosts && (
+                      <span className="text-[9px] bg-primary text-primary-foreground px-1.5 py-0.5 font-bold uppercase tracking-wider shrink-0">NEW</span>
+                    )}
                   </div>
-
-                  {/* Reply count — desktop */}
-                  <div className="hidden md:flex items-center justify-center text-sm text-muted-foreground">
-                    {replyCount}
+                  <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+                    <span className={`font-medium ${ROLE_COLOR[thread.authorRole as Role] ?? ''}`}>
+                      {thread.authorLogin}
+                    </span>
+                    <span>{formatRelative(thread.createdAt)}</span>
+                    {/* Mobile stats */}
+                    <span className="md:hidden flex items-center gap-2">
+                      · <MessageSquare className="w-3 h-3 inline" /> {thread.replyCount}
+                      · <Eye className="w-3 h-3 inline" /> {thread.views}
+                    </span>
                   </div>
+                </div>
 
-                  {/* Views — desktop */}
-                  <div className="hidden md:flex items-center justify-center text-sm text-muted-foreground">
-                    {thread.views}
-                  </div>
-
-                  {/* Last post — desktop */}
-                  {lastPost ? (
-                    <div className="hidden md:block text-right">
-                      <div className={`text-xs font-medium ${ROLE_COLOR[lastPost.authorRole]}`}>
-                        {lastPost.authorLogin}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">{formatRelative(lastPost.createdAt)}</div>
+                {/* Reply count — desktop */}
+                <div className="hidden md:flex items-center justify-center text-sm text-muted-foreground">
+                  {thread.replyCount}
+                </div>
+                {/* Views — desktop */}
+                <div className="hidden md:flex items-center justify-center text-sm text-muted-foreground">
+                  {thread.views}
+                </div>
+                {/* Last post — desktop */}
+                {thread.lastPost ? (
+                  <div className="hidden md:block text-right">
+                    <div className={`text-xs font-medium ${ROLE_COLOR[thread.lastPost.authorRole as Role] ?? ''}`}>
+                      {thread.lastPost.authorLogin}
                     </div>
-                  ) : (
-                    <div className="hidden md:block" />
-                  )}
-                </Link>
-              );
-            })}
+                    <div className="text-[11px] text-muted-foreground">{formatRelative(thread.lastPost.createdAt)}</div>
+                  </div>
+                ) : (
+                  <div className="hidden md:block" />
+                )}
+              </Link>
+            ))}
           </div>
         </div>
       )}
@@ -282,7 +288,9 @@ export default function ForumCategory() {
             </div>
             <DialogFooter className="gap-2">
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Отмена</Button>
-              <Button type="submit" disabled={!newTitle.trim() || !newBody.trim()}>Опубликовать</Button>
+              <Button type="submit" disabled={!newTitle.trim() || !newBody.trim() || creating}>
+                {creating ? 'Публикую...' : 'Опубликовать'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

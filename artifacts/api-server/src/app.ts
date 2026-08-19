@@ -1,34 +1,35 @@
-import express, { type Express } from "express";
-import cors from "cors";
-import pinoHttp from "pino-http";
-import router from "./routes";
-import { logger } from "./lib/logger";
+import express, { type Express } from 'express';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import pinoHttp from 'pino-http';
+import router from './routes/index.js';
+import { logger } from './lib/logger.js';
 
 const app: Express = express();
 
+// ── Logging ────────────────────────────────────────────────────────────────────
 app.use(
   pinoHttp({
     logger,
     serializers: {
-      req(req) {
-        return {
-          id: req.id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
-      },
-      res(res) {
-        return {
-          statusCode: res.statusCode,
-        };
-      },
+      req: req => ({ id: req.id, method: req.method, url: req.url?.split('?')[0] }),
+      res: res => ({ statusCode: res.statusCode }),
     },
   }),
 );
-app.use(cors());
+
+// ── CORS — same-origin in Replit proxy, but allow credentials ─────────────────
+app.use(cors({
+  origin: true,           // reflect origin (needed for credentials)
+  credentials: true,
+}));
+
+// ── Body / cookie parsing ──────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
-app.use("/api", router);
+// ── Routes ─────────────────────────────────────────────────────────────────────
+app.use('/api', router);
 
 export default app;

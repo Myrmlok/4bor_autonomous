@@ -1,18 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useParams, useLocation } from 'wouter';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronRight, Lock, Heart, Quote, Reply, Pin, Send, X,
   Pencil, Trash2, Bookmark, BookmarkCheck, ShieldCheck,
   PinOff, Unlock,
 } from 'lucide-react';
-import { useForum } from '../../contexts/ForumContext';
+import { forum as forumApi, type ApiForumPost, type ApiForumThread } from '../../lib/api-client';
+import { useForum, FORUM_CATEGORIES } from '../../contexts/ForumContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../../components/ui/button';
 import { ROLE_LABELS } from '../../lib/format';
-import type { Role } from '../../data/mock';
-import type { ForumPost } from '../../data/forum-mock';
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+type Role = 'admin' | 'dealer' | 'collector';
 
 const ROLE_COLOR: Record<Role, string> = {
   admin:     'text-purple-600',
@@ -45,27 +45,24 @@ function formatRelative(iso: string) {
   return new Date(iso).toLocaleDateString('ru-RU');
 }
 function pluralPosts(n: number) {
-  if (n === 1)                     return '1 сообщение';
-  if (n >= 2 && n <= 4)            return `${n} сообщения`;
+  if (n === 1)          return '1 сообщение';
+  if (n >= 2 && n <= 4) return `${n} сообщения`;
   return `${n} сообщений`;
 }
 function pluralViews(n: number) {
-  if (n === 1)                     return '1 просмотр';
-  if (n >= 2 && n <= 4)            return `${n} просмотра`;
+  if (n === 1)          return '1 просмотр';
+  if (n >= 2 && n <= 4) return `${n} просмотра`;
   return `${n} просмотров`;
 }
 
-// ─── Avatar ───────────────────────────────────────────────────────────────────
-
-function Avatar({ login, role }: { login: string; role: Role }) {
+function Avatar({ login, role }: { login: string; role: string }) {
+  const r = (role as Role) in ROLE_BG ? (role as Role) : 'collector';
   return (
-    <div className={`w-9 h-9 md:w-10 md:h-10 flex items-center justify-center font-serif font-bold text-sm flex-shrink-0 border ${ROLE_BG[role]}`}>
+    <div className={`w-9 h-9 md:w-10 md:h-10 flex items-center justify-center font-serif font-bold text-sm flex-shrink-0 border ${ROLE_BG[r]}`}>
       {login[0]?.toUpperCase()}
     </div>
   );
 }
-
-// ─── Delete confirm ───────────────────────────────────────────────────────────
 
 function DeleteConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
   return (
@@ -77,47 +74,54 @@ function DeleteConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCance
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function ForumThread() {
   const { threadId } = useParams<{ threadId: string }>();
   const [, setLocation] = useLocation();
-  const {
-    getThreadById, getCategoryById, getThreadPosts,
-    addPost, editPost, deletePost,
-    toggleLike, toggleLock, togglePin, toggleBookmark,
-    incrementViews, markThreadSeen,
-    likedPosts, bookmarkedThreads,
-    getUserPostCount,
-  } = useForum();
+  const { addPost, editPost, deletePost, likePost, bookmark, togglePin, toggleLock, incrementViews, markSeen } = useForum();
   const { user } = useAuth();
+  const qc = useQueryClient();
+  const tid = Number(threadId);
 
-  const thread   = getThreadById(threadId);
-  const category = thread ? getCategoryById(thread.categoryId) : undefined;
-  const posts    = getThreadPosts(threadId);
+  // ── Data ──────────────────────────────────────────────────────────────────
+  const { data: thread, isLoading: threadLoading } = useQuery({
+    queryKey: ['forum-thread', tid],
+    queryFn:  () => forumApi.thread(tid),
+    enabled:  !isNaN(tid),
+  });
+
+  const { data: posts = [], isLoading: postsLoading } = useQuery({
+    queryKey: ['forum-posts', tid],
+    queryFn:  () => forumApi.posts(tid),
+    enabled:  !isNaN(tid),
+    staleTime: 10_000,
+  });
+
+  const category = thread ? FORUM_CATEGORIES.find(c => c.id === thread.categoryId) : undefined;
+
+  // ── Track view + seen ─────────────────────────────────────────────────────
+  const viewedRef = useRef(false);
+  useEffect(() => {
+    if (!thread || viewedRef.current) return;
+    viewedRef.current = true;
+    incrementViews(tid).catch(() => {});
+    if (user && posts.length > 0) {
+      markSeen(tid, posts.length).catch(() => {});
+    }
+  }, [thread, posts.length, user]);
 
   // ── Reply state ────────────────────────────────────────────────────────────
   const [replyBody, setReplyBody]   = useState('');
-  const [quotedPost, setQuotedPost] = useState<ForumPost | null>(null);
+  const [quotedPost, setQuotedPost] = useState<ApiForumPost | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const replyRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // ── Edit state ────────────────────────────────────────────────────────────
-  const [editingId, setEditingId]   = useState<string | null>(null);
+  // ── Edit / delete state ────────────────────────────────────────────────────
+  const [editingId, setEditingId]   = useState<number | null>(null);
   const [editBody, setEditBody]     = useState('');
-
-  // ── Delete state ─────────────────────────────────────────────────────────
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // ── View tracking ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (thread) {
-      incrementViews(thread.id);
-      markThreadSeen(thread.id, posts.length);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
     if (quotedPost && replyRef.current) {
@@ -126,7 +130,12 @@ export default function ForumThread() {
     }
   }, [quotedPost]);
 
-  if (!thread || !category) {
+  // ── Loading / not found ───────────────────────────────────────────────────
+  if (threadLoading || postsLoading) {
+    return <div className="p-8 text-center text-sm text-muted-foreground">Загрузка...</div>;
+  }
+
+  if (!thread) {
     return (
       <div className="p-8 flex flex-col items-center justify-center min-h-[60vh]">
         <p className="text-muted-foreground mb-4">Тема не найдена.</p>
@@ -135,41 +144,93 @@ export default function ForumThread() {
     );
   }
 
-  const isAdmin     = user?.role === 'admin';
-  const isBookmarked = bookmarkedThreads.has(thread.id);
-  const canReply    = !!(user && !thread.isLocked);
+  const isAdmin      = user?.role === 'admin';
+  const isBookmarked = thread.isBookmarked;
+  const canReply     = !!(user && !thread.isLocked);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleReply = (e: React.FormEvent) => {
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['forum-posts', tid] });
+    qc.invalidateQueries({ queryKey: ['forum-thread', tid] });
+    qc.invalidateQueries({ queryKey: ['forum-threads'] });
+    qc.invalidateQueries({ queryKey: ['forum-categories'] });
+  };
+
+  const handleReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !replyBody.trim()) return;
     setSubmitting(true);
-    setTimeout(() => {
-      addPost({ threadId, body: replyBody.trim(), authorLogin: user.login, authorRole: user.role, quotedPostId: quotedPost?.id });
+    try {
+      await addPost(tid, replyBody.trim(), quotedPost?.id);
+      await qc.invalidateQueries({ queryKey: ['forum-posts', tid] });
       setReplyBody('');
       setQuotedPost(null);
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    } catch (err) {
+      console.error(err);
+    } finally {
       setSubmitting(false);
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-    }, 150);
+    }
   };
 
-  const startEdit = (post: ForumPost) => {
+  const startEdit = (post: ApiForumPost) => {
     setEditingId(post.id);
     setEditBody(post.body);
     setDeletingId(null);
   };
 
-  const saveEdit = (postId: string) => {
+  const saveEdit = async (postId: number) => {
     if (!editBody.trim()) return;
-    editPost(postId, editBody.trim());
+    try {
+      await editPost(postId, editBody.trim());
+      await qc.invalidateQueries({ queryKey: ['forum-posts', tid] });
+    } catch (err) { console.error(err); }
     setEditingId(null);
   };
 
-  const confirmDelete = (postId: string) => {
-    deletePost(postId);
+  const confirmDelete = async (postId: number) => {
+    try {
+      await deletePost(postId);
+      await qc.invalidateQueries({ queryKey: ['forum-posts', tid] });
+      qc.invalidateQueries({ queryKey: ['forum-thread', tid] });
+    } catch (err) { console.error(err); }
     setDeletingId(null);
   };
+
+  const handleLike = async (post: ApiForumPost) => {
+    const result = await likePost(post.id, post.isLiked);
+    // Optimistically update in cache
+    qc.setQueryData<ApiForumPost[]>(['forum-posts', tid], prev =>
+      prev?.map(p => p.id === post.id ? { ...p, likes: result.likes, isLiked: result.liked } : p),
+    );
+  };
+
+  const handleBookmark = async () => {
+    await bookmark(thread.id, isBookmarked);
+    qc.setQueryData<ApiForumThread>(['forum-thread', tid], prev =>
+      prev ? { ...prev, isBookmarked: !isBookmarked } : prev,
+    );
+    qc.invalidateQueries({ queryKey: ['forum-bookmarks'] });
+  };
+
+  const handleTogglePin = async () => {
+    await togglePin(thread.id, !thread.isPinned);
+    qc.setQueryData<ApiForumThread>(['forum-thread', tid], prev =>
+      prev ? { ...prev, isPinned: !prev.isPinned } : prev,
+    );
+    invalidate();
+  };
+
+  const handleToggleLock = async () => {
+    await toggleLock(thread.id, !thread.isLocked);
+    qc.setQueryData<ApiForumThread>(['forum-thread', tid], prev =>
+      prev ? { ...prev, isLocked: !prev.isLocked } : prev,
+    );
+  };
+
+  const roleColor = (role: string) => ROLE_COLOR[(role as Role) in ROLE_COLOR ? (role as Role) : 'collector'];
+  const roleBg    = (role: string) => ROLE_BG[(role as Role) in ROLE_BG     ? (role as Role) : 'collector'];
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto pb-24 md:pb-8">
@@ -177,10 +238,14 @@ export default function ForumThread() {
       <nav className="flex items-center gap-1.5 text-xs text-muted-foreground mb-5 flex-wrap">
         <Link href="/forum" className="hover:text-primary transition-colors">Форум</Link>
         <ChevronRight className="w-3 h-3 flex-shrink-0" />
-        <Link href={`/forum/${category.id}`} className="hover:text-primary transition-colors">
-          {category.title}
-        </Link>
-        <ChevronRight className="w-3 h-3 flex-shrink-0" />
+        {category && (
+          <>
+            <Link href={`/forum/${category.id}`} className="hover:text-primary transition-colors">
+              {category.title}
+            </Link>
+            <ChevronRight className="w-3 h-3 flex-shrink-0" />
+          </>
+        )}
         <span className="text-foreground font-medium line-clamp-1">{thread.title}</span>
       </nav>
 
@@ -194,7 +259,7 @@ export default function ForumThread() {
               <h1 className="text-lg md:text-2xl font-serif font-semibold leading-tight">{thread.title}</h1>
             </div>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span className={`font-medium ${ROLE_COLOR[thread.authorRole]}`}>{thread.authorLogin}</span>
+              <span className={`font-medium ${roleColor(thread.authorRole)}`}>{thread.authorLogin}</span>
               <span>·</span>
               <span title={formatDate(thread.createdAt)}>{formatRelative(thread.createdAt)}</span>
               <span>·</span>
@@ -209,16 +274,15 @@ export default function ForumThread() {
 
           {/* Right actions */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* Bookmark */}
-            <button
-              onClick={() => toggleBookmark(thread.id)}
-              title={isBookmarked ? 'Убрать из закладок' : 'В закладки'}
-              className={`p-1.5 transition-colors ${isBookmarked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
-            >
-              {isBookmarked ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
-            </button>
-
-            {/* Reply */}
+            {user && (
+              <button
+                onClick={handleBookmark}
+                title={isBookmarked ? 'Убрать из закладок' : 'В закладки'}
+                className={`p-1.5 transition-colors ${isBookmarked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}
+              >
+                {isBookmarked ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
+              </button>
+            )}
             {canReply && (
               <Button
                 size="sm" variant="outline"
@@ -240,7 +304,7 @@ export default function ForumThread() {
               Модерация:
             </span>
             <button
-              onClick={() => togglePin(thread.id)}
+              onClick={handleTogglePin}
               className={`flex items-center gap-1 text-xs px-2.5 py-1 border transition-colors ${
                 thread.isPinned
                   ? 'border-primary/40 text-primary bg-primary/5 hover:bg-muted'
@@ -251,7 +315,7 @@ export default function ForumThread() {
               {thread.isPinned ? 'Открепить' : 'Закрепить'}
             </button>
             <button
-              onClick={() => toggleLock(thread.id)}
+              onClick={handleToggleLock}
               className={`flex items-center gap-1 text-xs px-2.5 py-1 border transition-colors ${
                 thread.isLocked
                   ? 'border-amber-400/40 text-amber-700 bg-amber-50 hover:bg-muted'
@@ -268,13 +332,9 @@ export default function ForumThread() {
       {/* Posts */}
       <div className="space-y-4 md:space-y-5 mb-6 md:mb-8">
         {posts.map((post, idx) => {
-          const quotedSource = post.quotedPostId
-            ? posts.find(p => p.id === post.quotedPostId)
-            : undefined;
-          const isLiked    = likedPosts.has(post.id);
+          const quotedSource = post.quotedPostId ? posts.find(p => p.id === post.quotedPostId) : undefined;
           const isOwn      = user?.login === post.authorLogin;
           const canEdit    = isOwn || isAdmin;
-          const postCount  = getUserPostCount(post.authorLogin);
           const isEditing  = editingId === post.id;
           const isDeleting = deletingId === post.id;
 
@@ -290,11 +350,11 @@ export default function ForumThread() {
                   <Avatar login={post.authorLogin} role={post.authorRole} />
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className={`text-sm font-semibold ${ROLE_COLOR[post.authorRole]}`}>
+                      <span className={`text-sm font-semibold ${roleColor(post.authorRole)}`}>
                         {post.authorLogin}
                       </span>
-                      <span className={`text-[10px] px-1.5 py-0.5 border font-medium uppercase tracking-wider ${ROLE_BG[post.authorRole]}`}>
-                        {ROLE_LABELS[post.authorRole]}
+                      <span className={`text-[10px] px-1.5 py-0.5 border font-medium uppercase tracking-wider ${roleBg(post.authorRole)}`}>
+                        {ROLE_LABELS[post.authorRole as Role] ?? post.authorRole}
                       </span>
                       {post.isOp && (
                         <span className="text-[10px] px-1.5 py-0.5 border border-primary/20 bg-primary/5 text-primary font-medium uppercase tracking-wider">
@@ -306,17 +366,16 @@ export default function ForumThread() {
                       <span className="text-[11px] text-muted-foreground" title={formatDate(post.createdAt)}>
                         {formatRelative(post.createdAt)}
                       </span>
-                      {(post as ForumPost & { editedAt?: string }).editedAt && (
+                      {post.editedAt && (
                         <span className="text-[10px] text-muted-foreground/60 italic">· изменено</span>
                       )}
                       <span className="text-[10px] text-muted-foreground/50 hidden sm:inline">
-                        {postCount} {postCount === 1 ? 'сообщение' : postCount < 5 ? 'сообщения' : 'сообщений'} в клубе
+                        {post.authorPostCount} {post.authorPostCount === 1 ? 'сообщение' : post.authorPostCount < 5 ? 'сообщения' : 'сообщений'} в клубе
                       </span>
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  {/* Edit / delete — own post or admin */}
                   {canEdit && !isEditing && (
                     <>
                       <button
@@ -350,7 +409,7 @@ export default function ForumThread() {
               {/* Quoted post */}
               {quotedSource && !isEditing && (
                 <div className="mx-4 mt-3 px-3 py-2.5 border-l-2 border-primary/40 bg-muted/30 text-xs text-muted-foreground">
-                  <span className={`font-semibold ${ROLE_COLOR[quotedSource.authorRole]} mr-1`}>
+                  <span className={`font-semibold ${roleColor(quotedSource.authorRole)} mr-1`}>
                     {quotedSource.authorLogin}:
                   </span>
                   <span className="line-clamp-3 leading-relaxed">{quotedSource.body}</span>
@@ -393,12 +452,13 @@ export default function ForumThread() {
               {!isEditing && (
                 <div className="px-4 pb-3 flex items-center gap-3">
                   <button
-                    onClick={() => toggleLike(post.id)}
+                    onClick={() => handleLike(post)}
+                    disabled={!user}
                     className={`flex items-center gap-1.5 text-xs transition-colors ${
-                      isLiked ? 'text-red-500' : 'text-muted-foreground hover:text-red-400'
-                    }`}
+                      post.isLiked ? 'text-red-500' : 'text-muted-foreground hover:text-red-400'
+                    } disabled:opacity-40 disabled:cursor-not-allowed`}
                   >
-                    <Heart className={`w-3.5 h-3.5 ${isLiked ? 'fill-current' : ''}`} />
+                    <Heart className={`w-3.5 h-3.5 ${post.isLiked ? 'fill-current' : ''}`} />
                     {post.likes > 0 && <span>{post.likes}</span>}
                   </button>
                   {canReply && !thread.isLocked && (
@@ -427,17 +487,15 @@ export default function ForumThread() {
             {user && (
               <div className="flex items-center gap-2">
                 <Avatar login={user.login} role={user.role} />
-                <span className={`text-xs font-medium ${ROLE_COLOR[user.role]}`}>{user.login}</span>
+                <span className={`text-xs font-medium ${roleColor(user.role)}`}>{user.login}</span>
               </div>
             )}
           </div>
-
           <form onSubmit={handleReply} className="p-4 md:p-6 space-y-3">
-            {/* Quoted preview */}
             {quotedPost && (
               <div className="flex items-start gap-2 p-3 border-l-2 border-primary/40 bg-muted/30 text-xs">
                 <div className="flex-1 min-w-0">
-                  <span className={`font-semibold ${ROLE_COLOR[quotedPost.authorRole]} mr-1`}>
+                  <span className={`font-semibold ${roleColor(quotedPost.authorRole)} mr-1`}>
                     {quotedPost.authorLogin}:
                   </span>
                   <span className="text-muted-foreground line-clamp-2">{quotedPost.body}</span>
@@ -451,7 +509,6 @@ export default function ForumThread() {
                 </button>
               </div>
             )}
-
             <textarea
               ref={replyRef}
               value={replyBody}

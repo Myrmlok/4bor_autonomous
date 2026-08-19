@@ -1,116 +1,83 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useLocation } from 'wouter';
-import { DEMO_ACCOUNTS, DEMO_INVITES, type User } from '../lib/demo-accounts';
-import type { Role } from '../data/mock';
+import React, {
+  createContext, useContext, useEffect, useState, useCallback, type ReactNode,
+} from 'react';
+import { auth, type ApiUser } from '../lib/api-client';
 
-export type { User, Role };
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-interface AuthContextType {
-  user: User | null;
-  isLoading: boolean;
-  login: (loginName: string, password: string) => boolean;
-  loginAs: (account: User) => void;
-  logout: () => void;
-  setRole: (role: Role) => void;
-  registerWithInvite: (token: string, loginName: string, email: string) => { ok: boolean; error?: string };
+export type UserRole = 'admin' | 'dealer' | 'collector';
+
+export interface AuthUser {
+  id: number;
+  login: string;
+  email: string;
+  role: UserRole;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const PUBLIC_PATHS = ['/login', '/register'];
-
-function isPublic(path: string) {
-  return PUBLIC_PATHS.some(p => path === p || path.startsWith(p + '/'));
+interface AuthContextValue {
+  user:     AuthUser | null;
+  loading:  boolean;
+  login:    (loginOrEmail: string, password: string) => Promise<void>;
+  register: (token: string, login: string, email: string, password: string) => Promise<void>;
+  logout:   () => Promise<void>;
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [location, setLocation] = useLocation();
+// ─── Demo quick-login shortcuts ───────────────────────────────────────────────
+// These work because the API seed creates these exact accounts with password '123'.
 
-  // Restore session from localStorage on mount (no auto-login if empty)
+export const DEMO_ACCOUNTS = [
+  { label: 'Дилер (Иванов)',      login: 'dealer_ivanov',    password: '123', role: 'dealer'    as UserRole },
+  { label: 'Коллекционер (Петров)', login: 'collector_petrov', password: '123', role: 'collector' as UserRole },
+  { label: 'Администратор',        login: 'admin',             password: 'admin123', role: 'admin' as UserRole },
+];
+
+// ─── Context ──────────────────────────────────────────────────────────────────
+
+const AuthContext = createContext<AuthContextValue>({
+  user: null, loading: true,
+  login: async () => {}, register: async () => {}, logout: async () => {},
+});
+
+function toAuthUser(u: ApiUser): AuthUser {
+  return { id: u.id, login: u.login, email: u.email, role: u.role };
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser]       = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // ── Boot: restore session from cookie ─────────────────────────────────────
   useEffect(() => {
-    const saved = localStorage.getItem('4bor_session');
-    if (saved) {
-      try {
-        setUser(JSON.parse(saved));
-      } catch {
-        localStorage.removeItem('4bor_session');
-      }
-    }
-    setIsLoading(false);
+    auth.me()
+      .then(u => setUser(toAuthUser(u)))
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false));
   }, []);
 
-  // Guard: redirect to /login when not authenticated and not on a public page
-  useEffect(() => {
-    if (!isLoading && !user && !isPublic(location)) {
-      setLocation('/login');
-    }
-  }, [user, isLoading, location]);
+  const login = useCallback(async (loginOrEmail: string, password: string) => {
+    const u = await auth.login(loginOrEmail, password);
+    setUser(toAuthUser(u));
+  }, []);
 
-  const login = (loginName: string, password: string): boolean => {
-    const account = DEMO_ACCOUNTS.find(
-      a => (a.login === loginName || a.email === loginName) && a.password === password
-    );
-    if (account) {
-      const { password: _, ...u } = account;
-      setUser(u);
-      localStorage.setItem('4bor_session', JSON.stringify(u));
-      return true;
-    }
-    return false;
-  };
+  const register = useCallback(async (
+    token: string, login: string, email: string, password: string,
+  ) => {
+    const u = await auth.register(token, login, email, password);
+    setUser(toAuthUser(u));
+  }, []);
 
-  const loginAs = (account: User) => {
-    setUser(account);
-    localStorage.setItem('4bor_session', JSON.stringify(account));
-  };
-
-  const logout = () => {
+  const logout = useCallback(async () => {
+    await auth.logout().catch(() => {});
     setUser(null);
-    localStorage.removeItem('4bor_session');
-    setLocation('/login');
-  };
-
-  const setRole = (role: Role) => {
-    if (user) {
-      const updated = { ...user, role };
-      setUser(updated);
-      localStorage.setItem('4bor_session', JSON.stringify(updated));
-    }
-  };
-
-  const registerWithInvite = (token: string, loginName: string, email: string): { ok: boolean; error?: string } => {
-    // Accept known demo tokens OR any token prefixed with role name (dealer-xxx, collector-xxx)
-    const invite =
-      DEMO_INVITES[token] ||
-      (token.startsWith('dealer-') ? { role: 'dealer' as Role, label: 'Дилер' } :
-       token.startsWith('collector-') ? { role: 'collector' as Role, label: 'Коллекционер' } :
-       null);
-    if (!invite) return { ok: false, error: 'Недействительная пригласительная ссылка.' };
-    if (!loginName.trim()) return { ok: false, error: 'Укажите логин.' };
-    if (!email.trim()) return { ok: false, error: 'Укажите email.' };
-    const newUser: User = {
-      id: Date.now(),
-      login: loginName.trim(),
-      email: email.trim(),
-      role: invite.role,
-      createdAt: new Date().toISOString().slice(0, 10),
-    };
-    setUser(newUser);
-    localStorage.setItem('4bor_session', JSON.stringify(newUser));
-    return { ok: true };
-  };
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, loginAs, logout, setRole, registerWithInvite }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
-  return context;
+  return useContext(AuthContext);
 }
