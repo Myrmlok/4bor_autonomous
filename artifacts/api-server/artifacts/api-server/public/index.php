@@ -61,7 +61,7 @@ $router->post('/auth/login', function() {
         [$login]
     );
 
-    if (!$user || !Auth::verifyPassword($password, $user['password_hash'])) {
+    if (!$user || !Auth::verifyPassword($password, $user['password'])) {
         Response::error('Неверный логин или пароль', 401);
     }
 
@@ -126,7 +126,7 @@ $router->post('/auth/register', function() {
         $userId = Database::insert('users', [
             'login' => $login,
             'email' => $email,
-            'password_hash' => Auth::hashPassword($password),
+            'password' => Auth::hashPassword($password),
             'role' => $invite['role']
         ]);
 
@@ -290,7 +290,7 @@ $router->get('/lots', function() {
             (SELECT COUNT(*) FROM bids WHERE lot_id = l.id) as bids_count,
             ls.buyer_id as sold_to,
             ls.final_price as sold_price,
-            ls.sold_via
+            ls.sale_type as sold_via
             FROM lots l
             LEFT JOIN lot_sales ls ON l.id = ls.lot_id
             WHERE 1=1';
@@ -334,7 +334,7 @@ $router->get('/lots/:id', function($params) {
          (SELECT COUNT(*) FROM bids WHERE lot_id = l.id) as bids_count,
          ls.buyer_id as sold_to,
          ls.final_price as sold_price,
-         ls.sold_via
+         ls.sale_type as sold_via
          FROM lots l
          LEFT JOIN lot_sales ls ON l.id = ls.lot_id
          WHERE l.id = ?',
@@ -430,7 +430,7 @@ $router->post('/lots/:id/bid', function($params) {
                     'lot_id' => $params['id'],
                     'buyer_id' => $currentUser['id'],
                     'final_price' => $finalAmount,
-                    'sold_via' => 'blitz'
+                    'sale_type' => 'blitz'
                 ]);
 
                 Database::query(
@@ -774,6 +774,743 @@ $router->get('/users/me/orders', function() {
     }
 
     Response::json($orders);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Search Route
+// ────────────────────────────────────────────────────────────────────────────
+
+$router->get('/search', function() {
+    $query = Response::getQuery();
+    $q = $query['q'] ?? '';
+
+    if (strlen($q) < 2) {
+        Response::json([]);
+    }
+
+    $searchTerm = '%' . $q . '%';
+    $results = [];
+
+    // Search lots
+    $lots = Database::fetchAll(
+        'SELECT id, title, description, image_url, "lot" as type FROM lots
+         WHERE (title LIKE ? OR description LIKE ?) AND status = "active"
+         LIMIT 10',
+        [$searchTerm, $searchTerm]
+    );
+
+    // Search themes
+    $themes = Database::fetchAll(
+        'SELECT id, name as title, image_url, "theme" as type FROM themes
+         WHERE name LIKE ?
+         LIMIT 5',
+        [$searchTerm]
+    );
+
+    // Search stickers
+    $stickers = Database::fetchAll(
+        'SELECT id, text as title, image_url, "sticker" as type FROM stickers
+         WHERE text LIKE ?
+         LIMIT 5',
+        [$searchTerm]
+    );
+
+    // Search news
+    $news = Database::fetchAll(
+        'SELECT id, title, image_url, "news" as type FROM news
+         WHERE title LIKE ? OR body LIKE ?
+         LIMIT 5',
+        [$searchTerm, $searchTerm]
+    );
+
+    $results = array_merge($lots, $themes, $stickers, $news);
+
+    Response::json($results);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Activity Feed
+// ────────────────────────────────────────────────────────────────────────────
+
+$router->get('/activity', function() {
+    $activities = Database::fetchAll(
+        'SELECT * FROM activity_log ORDER BY created_at DESC LIMIT 20'
+    );
+
+    Response::json($activities);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Admin Routes
+// ────────────────────────────────────────────────────────────────────────────
+
+$router->get('/admin/users', function() {
+    requireAdmin();
+
+    $users = Database::fetchAll(
+        'SELECT id, login, email, role, created_at FROM users ORDER BY created_at DESC'
+    );
+
+    Response::json($users);
+});
+
+$router->patch('/admin/users/:id', function($params) {
+    global $currentUser;
+    requireAdmin();
+
+    $body = Response::getBody();
+    $newRole = $body['role'] ?? '';
+
+    if (!in_array($newRole, ['admin', 'dealer', 'collector'])) {
+        Response::error('Недопустимая роль');
+    }
+
+    // Check if user exists
+    $user = Database::fetch('SELECT * FROM users WHERE id = ?', [$params['id']]);
+    if (!$user) {
+        Response::error('Пользователь не найден', 404);
+    }
+
+    // Prevent admin from demoting themselves
+    if ($params['id'] == $currentUser['id'] && $newRole !== 'admin') {
+        Response::error('Нельзя понизить свою роль', 403);
+    }
+
+    Database::query(
+        'UPDATE users SET role = ?, updated_at = datetime("now") WHERE id = ?',
+        [$newRole, $params['id']]
+    );
+
+    $updated = Database::fetch('SELECT id, login, email, role, created_at FROM users WHERE id = ?', [$params['id']]);
+    Response::json($updated);
+});
+
+$router->get('/admin/invites', function() {
+    requireAdmin();
+
+    $invites = Database::fetchAll(
+        'SELECT it.*,
+         u.login as created_by_login,
+         u2.login as used_by_login
+         FROM invite_tokens it
+         LEFT JOIN users u ON it.created_by_id = u.id
+         LEFT JOIN users u2 ON it.used_by_id = u2.id
+         ORDER BY it.created_at DESC'
+    );
+
+    Response::json($invites);
+});
+
+$router->post('/admin/invites', function() {
+    global $currentUser;
+    requireAdmin();
+
+    $body = Response::getBody();
+    $role = $body['role'] ?? 'collector';
+    $label = $body['label'] ?? '';
+
+    if (!in_array($role, ['dealer', 'collector'])) {
+        Response::error('Роль должна быть dealer или collector');
+    }
+
+    // Generate token
+    $token = bin2hex(random_bytes(16));
+
+    $inviteId = Database::insert('invite_tokens', [
+        'token' => $token,
+        'role' => $role,
+        'label' => $label ?: "$role инвайт",
+        'created_by_id' => $currentUser['id']
+    ]);
+
+    $invite = Database::fetch('SELECT * FROM invite_tokens WHERE id = ?', [$inviteId]);
+    Response::json($invite, 201);
+});
+
+$router->delete('/admin/invites/:id', function($params) {
+    requireAdmin();
+
+    Database::query('DELETE FROM invite_tokens WHERE id = ?', [$params['id']]);
+    Response::noContent();
+});
+
+$router->get('/admin/lots', function() {
+    requireAdmin();
+
+    $lots = Database::fetchAll(
+        'SELECT l.*,
+         (SELECT MAX(amount) FROM bids WHERE lot_id = l.id) as current_bid,
+         (SELECT COUNT(*) FROM bids WHERE lot_id = l.id) as bids_count
+         FROM lots l
+         ORDER BY l.created_at DESC'
+    );
+
+    Response::json($lots);
+});
+
+$router->post('/admin/lots', function() {
+    requireAdmin();
+
+    $body = Response::getBody();
+    $title = $body['title'] ?? '';
+    $description = $body['description'] ?? '';
+    $themeId = $body['themeId'] ?? '';
+    $groupId = $body['groupId'] ?? '';
+    $sectionType = $body['sectionType'] ?? '';
+    $format = $body['format'] ?? '';
+    $price = isset($body['price']) ? (int)$body['price'] : null;
+    $bidMin = isset($body['bidMin']) ? (int)$body['bidMin'] : null;
+    $bidMax = isset($body['bidMax']) ? (int)$body['bidMax'] : null;
+    $imageUrl = $body['imageUrl'] ?? '/images/theme-medieval.jpg';
+
+    if (!$title || !$description || !$themeId || !$groupId || !$sectionType || !$format) {
+        Response::error('Все обязательные поля должны быть заполнены');
+    }
+
+    if (!in_array($format, ['fixed', 'auction'])) {
+        Response::error('Формат должен быть fixed или auction');
+    }
+
+    if ($format === 'fixed' && !$price) {
+        Response::error('Для fixed-лотов требуется цена');
+    }
+
+    if ($format === 'auction' && (!$bidMin || !$bidMax)) {
+        Response::error('Для auction-лотов требуются bidMin и bidMax');
+    }
+
+    // Generate lot ID
+    $lotId = 'l' . time() . rand(100, 999);
+
+    Database::insert('lots', [
+        'id' => $lotId,
+        'title' => $title,
+        'description' => $description,
+        'theme_id' => $themeId,
+        'group_id' => $groupId,
+        'section_type' => $sectionType,
+        'format' => $format,
+        'price' => $price,
+        'bid_min' => $bidMin,
+        'bid_max' => $bidMax,
+        'image_url' => $imageUrl,
+        'status' => 'active'
+    ]);
+
+    // Log activity
+    Database::insert('activity_log', [
+        'text' => "Новый лот в разделе " . ucfirst($sectionType) . ": \"$title\""
+    ]);
+
+    $lot = Database::fetch('SELECT * FROM lots WHERE id = ?', [$lotId]);
+    Response::json($lot, 201);
+});
+
+$router->patch('/admin/lots/:id', function($params) {
+    requireAdmin();
+
+    $body = Response::getBody();
+
+    $lot = Database::fetch('SELECT * FROM lots WHERE id = ?', [$params['id']]);
+    if (!$lot) {
+        Response::error('Лот не найден', 404);
+    }
+
+    $updates = [];
+    $values = [];
+
+    if (isset($body['title'])) {
+        $updates[] = 'title = ?';
+        $values[] = $body['title'];
+    }
+    if (isset($body['description'])) {
+        $updates[] = 'description = ?';
+        $values[] = $body['description'];
+    }
+    if (isset($body['price'])) {
+        $updates[] = 'price = ?';
+        $values[] = (int)$body['price'];
+    }
+    if (isset($body['bidMin'])) {
+        $updates[] = 'bid_min = ?';
+        $values[] = (int)$body['bidMin'];
+    }
+    if (isset($body['bidMax'])) {
+        $updates[] = 'bid_max = ?';
+        $values[] = (int)$body['bidMax'];
+    }
+    if (isset($body['status'])) {
+        $updates[] = 'status = ?';
+        $values[] = $body['status'];
+    }
+
+    if (empty($updates)) {
+        Response::error('Нет данных для обновления');
+    }
+
+    $values[] = $params['id'];
+    $sql = 'UPDATE lots SET ' . implode(', ', $updates) . ' WHERE id = ?';
+    Database::query($sql, $values);
+
+    $updated = Database::fetch('SELECT * FROM lots WHERE id = ?', [$params['id']]);
+    Response::json($updated);
+});
+
+$router->delete('/admin/lots/:id', function($params) {
+    requireAdmin();
+
+    // Check if lot has bids
+    $hasBids = Database::fetch('SELECT COUNT(*) as count FROM bids WHERE lot_id = ?', [$params['id']]);
+    if ($hasBids['count'] > 0) {
+        Response::error('Нельзя удалить лот с активными ставками', 400);
+    }
+
+    Database::query('DELETE FROM lots WHERE id = ?', [$params['id']]);
+    Response::noContent();
+});
+
+$router->get('/admin/stats', function() {
+    requireAdmin();
+
+    $userCount = Database::fetch('SELECT COUNT(*) as count FROM users')['count'];
+    $lotCount = Database::fetch('SELECT COUNT(*) as count FROM lots WHERE status = "active"')['count'];
+    $bidCount = Database::fetch('SELECT COUNT(*) as count FROM bids')['count'];
+    $orderCount = Database::fetch('SELECT COUNT(*) as count FROM orders')['count'];
+
+    Response::json([
+        'users' => $userCount,
+        'lots' => $lotCount,
+        'bids' => $bidCount,
+        'orders' => $orderCount
+    ]);
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Forum Routes
+// ────────────────────────────────────────────────────────────────────────────
+
+$router->get('/forum/categories', function() {
+    global $currentUser;
+    optionalAuth();
+
+    $categories = require __DIR__ . '/../src/data/forum-categories.php';
+
+    // Filter by access roles
+    if ($currentUser) {
+        $userRole = $currentUser['role'];
+        $categories = array_filter($categories, function($cat) use ($userRole) {
+            return in_array($userRole, $cat['accessRoles']);
+        });
+        $categories = array_values($categories);
+    }
+
+    // Add thread/post counts
+    foreach ($categories as &$cat) {
+        $threadCount = Database::fetch(
+            'SELECT COUNT(*) as count FROM forum_threads WHERE category_id = ?',
+            [$cat['id']]
+        )['count'];
+
+        $postCount = Database::fetch(
+            'SELECT COUNT(*) as count FROM forum_posts p
+             JOIN forum_threads t ON p.thread_id = t.id
+             WHERE t.category_id = ?',
+            [$cat['id']]
+        )['count'];
+
+        $cat['threadCount'] = $threadCount;
+        $cat['postCount'] = $postCount;
+    }
+
+    Response::json($categories);
+});
+
+$router->get('/forum/categories/:id/threads', function($params) {
+    global $currentUser;
+    optionalAuth();
+
+    $categoryId = $params['id'];
+
+    // Check access
+    $categories = require __DIR__ . '/../src/data/forum-categories.php';
+    $category = array_filter($categories, fn($c) => $c['id'] === $categoryId);
+    $category = reset($category);
+
+    if (!$category) {
+        Response::error('Категория не найдена', 404);
+    }
+
+    if ($currentUser && !in_array($currentUser['role'], $category['accessRoles'])) {
+        Response::error('Нет доступа к разделу', 403);
+    }
+
+    $threads = Database::fetchAll(
+        'SELECT t.*,
+         u.login as author_login,
+         u.role as author_role,
+         (SELECT COUNT(*) FROM forum_posts WHERE thread_id = t.id) as post_count,
+         (SELECT login FROM users WHERE id = (SELECT author_id FROM forum_posts WHERE thread_id = t.id ORDER BY created_at DESC LIMIT 1)) as last_poster
+         FROM forum_threads t
+         JOIN users u ON t.author_id = u.id
+         WHERE t.category_id = ?
+         ORDER BY t.is_pinned DESC, t.updated_at DESC',
+        [$categoryId]
+    );
+
+    Response::json($threads);
+});
+
+$router->post('/forum/categories/:id/threads', function($params) {
+    global $currentUser;
+    requireAuth();
+
+    $categoryId = $params['id'];
+
+    // Check access
+    $categories = require __DIR__ . '/../src/data/forum-categories.php';
+    $category = array_filter($categories, fn($c) => $c['id'] === $categoryId);
+    $category = reset($category);
+
+    if (!$category) {
+        Response::error('Категория не найдена', 404);
+    }
+
+    if (!in_array($currentUser['role'], $category['accessRoles'])) {
+        Response::error('Нет доступа к разделу', 403);
+    }
+
+    $body = Response::getBody();
+    $title = $body['title'] ?? '';
+    $postBody = $body['body'] ?? '';
+
+    if (!$title || !$postBody) {
+        Response::error('Заголовок и текст обязательны');
+    }
+
+    $result = Database::transaction(function() use ($categoryId, $title, $postBody, $currentUser) {
+        // Create thread
+        $threadId = Database::insert('forum_threads', [
+            'category_id' => $categoryId,
+            'title' => $title,
+            'author_id' => $currentUser['id']
+        ]);
+
+        // Create OP post
+        $postId = Database::insert('forum_posts', [
+            'thread_id' => $threadId,
+            'author_id' => $currentUser['id'],
+            'body' => $postBody,
+            'is_op' => 1
+        ]);
+
+        return ['threadId' => $threadId, 'postId' => $postId];
+    });
+
+    Response::json($result, 201);
+});
+
+$router->get('/forum/threads/:id', function($params) {
+    global $currentUser;
+    optionalAuth();
+
+    $thread = Database::fetch(
+        'SELECT t.*,
+         u.login as author_login,
+         u.role as author_role
+         FROM forum_threads t
+         JOIN users u ON t.author_id = u.id
+         WHERE t.id = ?',
+        [$params['id']]
+    );
+
+    if (!$thread) {
+        Response::error('Тема не найдена', 404);
+    }
+
+    // Check if bookmarked by current user
+    if ($currentUser) {
+        $isBookmarked = Database::fetch(
+            'SELECT 1 FROM thread_bookmarks WHERE thread_id = ? AND user_id = ?',
+            [$params['id'], $currentUser['id']]
+        );
+        $thread['isBookmarked'] = (bool)$isBookmarked;
+    } else {
+        $thread['isBookmarked'] = false;
+    }
+
+    Response::json($thread);
+});
+
+$router->post('/forum/threads/:id/views', function($params) {
+    Database::query(
+        'UPDATE forum_threads SET views = views + 1 WHERE id = ?',
+        [$params['id']]
+    );
+
+    Response::noContent();
+});
+
+$router->get('/forum/threads/:id/posts', function($params) {
+    global $currentUser;
+    optionalAuth();
+
+    $posts = Database::fetchAll(
+        'SELECT p.*,
+         u.login as author_login,
+         u.role as author_role,
+         (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) as likes
+         FROM forum_posts p
+         JOIN users u ON p.author_id = u.id
+         WHERE p.thread_id = ?
+         ORDER BY p.created_at ASC',
+        [$params['id']]
+    );
+
+    // Check if current user liked each post
+    if ($currentUser) {
+        foreach ($posts as &$post) {
+            $isLiked = Database::fetch(
+                'SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?',
+                [$post['id'], $currentUser['id']]
+            );
+            $post['isLiked'] = (bool)$isLiked;
+        }
+    } else {
+        foreach ($posts as &$post) {
+            $post['isLiked'] = false;
+        }
+    }
+
+    Response::json($posts);
+});
+
+$router->post('/forum/threads/:id/posts', function($params) {
+    global $currentUser;
+    requireAuth();
+
+    $thread = Database::fetch('SELECT * FROM forum_threads WHERE id = ?', [$params['id']]);
+    if (!$thread) {
+        Response::error('Тема не найдена', 404);
+    }
+
+    if ($thread['is_locked']) {
+        Response::error('Тема закрыта для комментариев', 403);
+    }
+
+    $body = Response::getBody();
+    $postBody = $body['body'] ?? '';
+    $quotedPostId = $body['quotedPostId'] ?? null;
+
+    if (!$postBody) {
+        Response::error('Текст сообщения обязателен');
+    }
+
+    $postId = Database::transaction(function() use ($params, $postBody, $quotedPostId, $currentUser) {
+        $postId = Database::insert('forum_posts', [
+            'thread_id' => $params['id'],
+            'author_id' => $currentUser['id'],
+            'body' => $postBody,
+            'quoted_post_id' => $quotedPostId,
+            'is_op' => 0
+        ]);
+
+        // Update thread updated_at
+        Database::query(
+            'UPDATE forum_threads SET updated_at = datetime("now") WHERE id = ?',
+            [$params['id']]
+        );
+
+        return $postId;
+    });
+
+    $post = Database::fetch('SELECT * FROM forum_posts WHERE id = ?', [$postId]);
+    Response::json($post, 201);
+});
+
+$router->put('/forum/posts/:id', function($params) {
+    global $currentUser;
+    requireAuth();
+
+    $post = Database::fetch('SELECT * FROM forum_posts WHERE id = ?', [$params['id']]);
+    if (!$post) {
+        Response::error('Сообщение не найдено', 404);
+    }
+
+    if ($post['author_id'] != $currentUser['id'] && $currentUser['role'] !== 'admin') {
+        Response::error('Нет доступа', 403);
+    }
+
+    $body = Response::getBody();
+    $newBody = $body['body'] ?? '';
+
+    if (!$newBody) {
+        Response::error('Текст сообщения обязателен');
+    }
+
+    Database::query(
+        'UPDATE forum_posts SET body = ?, edited_at = datetime("now") WHERE id = ?',
+        [$newBody, $params['id']]
+    );
+
+    $updated = Database::fetch('SELECT * FROM forum_posts WHERE id = ?', [$params['id']]);
+    Response::json($updated);
+});
+
+$router->delete('/forum/posts/:id', function($params) {
+    global $currentUser;
+    requireAuth();
+
+    $post = Database::fetch('SELECT * FROM forum_posts WHERE id = ?', [$params['id']]);
+    if (!$post) {
+        Response::error('Сообщение не найдено', 404);
+    }
+
+    if ($post['author_id'] != $currentUser['id'] && $currentUser['role'] !== 'admin') {
+        Response::error('Нет доступа', 403);
+    }
+
+    if ($post['is_op']) {
+        Response::error('Нельзя удалить первое сообщение темы', 400);
+    }
+
+    Database::query('DELETE FROM forum_posts WHERE id = ?', [$params['id']]);
+    Response::noContent();
+});
+
+$router->post('/forum/posts/:id/like', function($params) {
+    global $currentUser;
+    requireAuth();
+
+    $post = Database::fetch('SELECT id FROM forum_posts WHERE id = ?', [$params['id']]);
+    if (!$post) {
+        Response::error('Сообщение не найдено', 404);
+    }
+
+    try {
+        Database::insert('post_likes', [
+            'post_id' => $params['id'],
+            'user_id' => $currentUser['id']
+        ]);
+    } catch (Exception $e) {
+        // Already liked (PRIMARY KEY violation)
+        Response::error('Уже отмечено как понравившееся', 400);
+    }
+
+    Response::noContent();
+});
+
+$router->delete('/forum/posts/:id/like', function($params) {
+    global $currentUser;
+    requireAuth();
+
+    Database::query(
+        'DELETE FROM post_likes WHERE post_id = ? AND user_id = ?',
+        [$params['id'], $currentUser['id']]
+    );
+
+    Response::noContent();
+});
+
+$router->post('/forum/threads/:id/bookmark', function($params) {
+    global $currentUser;
+    requireAuth();
+
+    $thread = Database::fetch('SELECT id FROM forum_threads WHERE id = ?', [$params['id']]);
+    if (!$thread) {
+        Response::error('Тема не найдена', 404);
+    }
+
+    try {
+        Database::insert('thread_bookmarks', [
+            'thread_id' => $params['id'],
+            'user_id' => $currentUser['id']
+        ]);
+    } catch (Exception $e) {
+        Response::error('Уже в закладках', 400);
+    }
+
+    Response::noContent();
+});
+
+$router->delete('/forum/threads/:id/bookmark', function($params) {
+    global $currentUser;
+    requireAuth();
+
+    Database::query(
+        'DELETE FROM thread_bookmarks WHERE thread_id = ? AND user_id = ?',
+        [$params['id'], $currentUser['id']]
+    );
+
+    Response::noContent();
+});
+
+$router->get('/forum/bookmarks', function() {
+    global $currentUser;
+    requireAuth();
+
+    $threads = Database::fetchAll(
+        'SELECT t.*,
+         u.login as author_login,
+         (SELECT COUNT(*) FROM forum_posts WHERE thread_id = t.id) as post_count
+         FROM thread_bookmarks tb
+         JOIN forum_threads t ON tb.thread_id = t.id
+         JOIN users u ON t.author_id = u.id
+         WHERE tb.user_id = ?
+         ORDER BY tb.created_at DESC',
+        [$currentUser['id']]
+    );
+
+    Response::json($threads);
+});
+
+$router->post('/forum/threads/:id/seen', function($params) {
+    global $currentUser;
+    requireAuth();
+
+    $postCount = Database::fetch(
+        'SELECT COUNT(*) as count FROM forum_posts WHERE thread_id = ?',
+        [$params['id']]
+    )['count'];
+
+    // Upsert thread_seen
+    Database::query(
+        'INSERT INTO thread_seen (thread_id, user_id, post_count)
+         VALUES (?, ?, ?)
+         ON CONFLICT(thread_id, user_id) DO UPDATE SET post_count = ?, updated_at = datetime("now")',
+        [$params['id'], $currentUser['id'], $postCount, $postCount]
+    );
+
+    Response::noContent();
+});
+
+$router->patch('/forum/threads/:id', function($params) {
+    requireAdmin();
+
+    $body = Response::getBody();
+
+    $updates = [];
+    $values = [];
+
+    if (isset($body['isPinned'])) {
+        $updates[] = 'is_pinned = ?';
+        $values[] = $body['isPinned'] ? 1 : 0;
+    }
+
+    if (isset($body['isLocked'])) {
+        $updates[] = 'is_locked = ?';
+        $values[] = $body['isLocked'] ? 1 : 0;
+    }
+
+    if (empty($updates)) {
+        Response::error('Нет данных для обновления');
+    }
+
+    $values[] = $params['id'];
+    $sql = 'UPDATE forum_threads SET ' . implode(', ', $updates) . ' WHERE id = ?';
+    Database::query($sql, $values);
+
+    $updated = Database::fetch('SELECT * FROM forum_threads WHERE id = ?', [$params['id']]);
+    Response::json($updated);
 });
 
 // Dispatch
