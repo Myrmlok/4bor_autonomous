@@ -101,6 +101,17 @@ export const lotSales = pgTable('lot_sales', {
   soldAt:     timestamp('sold_at').defaultNow().notNull(),
 });
 
+// ─── Stickers ─────────────────────────────────────────────────────────────────
+
+export const stickers = pgTable('stickers', {
+  id:        serial('id').primaryKey(),
+  userId:    integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  text:      text('text').notNull(),
+  budget:    integer('budget').notNull(),
+  imageUrl:  text('image_url').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User         = typeof users.$inferSelect;
@@ -110,3 +121,4 @@ export type ForumPost    = typeof forumPosts.$inferSelect;
 export type CartItem     = typeof cartItems.$inferSelect;
 export type Bid          = typeof bids.$inferSelect;
 export type LotSale      = typeof lotSales.$inferSelect;
+export type Sticker      = typeof stickers.$inferSelect;

@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { stickers as initialStickers, themes, type Sticker } from '../data/mock';
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { stickersApi, type ApiSticker } from '../lib/api-client';
 import { formatPrice } from '../lib/format';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -9,25 +10,18 @@ import {
 import { Input } from '../components/ui/input';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../hooks/use-toast';
-import { Plus, MessageSquare, X } from 'lucide-react';
-
-const STICKERS_KEY = '4bor_stickers';
+import { Plus, MessageSquare, X, Loader2 } from 'lucide-react';
 
 export default function Stickers() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [stickersList, setStickersList] = useState<Sticker[]>(() => {
-    try {
-      const saved = localStorage.getItem(STICKERS_KEY);
-      return saved ? (JSON.parse(saved) as Sticker[]) : initialStickers;
-    } catch {
-      return initialStickers;
-    }
-  });
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    localStorage.setItem(STICKERS_KEY, JSON.stringify(stickersList));
-  }, [stickersList]);
+  // Fetch stickers from API
+  const { data: stickersList = [], isLoading } = useQuery<ApiSticker[]>({
+    queryKey: ['stickers'],
+    queryFn: () => stickersApi.list(),
+  });
 
   // Create sticker dialog
   const [createOpen, setCreateOpen] = useState(false);
@@ -35,35 +29,49 @@ export default function Stickers() {
   const [budget, setBudget] = useState('');
 
   // Offer dialog
-  const [offerStickerId, setOfferStickerId] = useState<string | null>(null);
+  const [offerStickerId, setOfferStickerId] = useState<number | null>(null);
   const [offerText, setOfferText] = useState('');
   const [offerPrice, setOfferPrice] = useState('');
 
   const canAddSticker = user?.role === 'dealer' || user?.role === 'admin';
   const offerSticker = stickersList.find(s => s.id === offerStickerId);
 
+  // Create mutation
+  const createMutation = useMutation({
+    mutationFn: ({ text, budget }: { text: string; budget: number }) =>
+      stickersApi.create(text, budget),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stickers'] });
+      setCreateOpen(false);
+      setText('');
+      setBudget('');
+      toast({ title: 'Стикер размещён', description: 'Ваш запрос опубликован на доске.' });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Ошибка', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => stickersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['stickers'] });
+      toast({ title: 'Стикер удалён' });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Ошибка', description: err.message, variant: 'destructive' });
+    },
+  });
+
   const handleAddSticker = (e: React.FormEvent) => {
     e.preventDefault();
     if (!text || !budget) return;
-    const randomImage = themes[Math.floor(Math.random() * themes.length)].imageUrl;
-    const newSticker: Sticker = {
-      id: `s${Date.now()}`,
-      userId: user?.id || 1,
-      text,
-      budget: parseFloat(budget),
-      imageUrl: randomImage,
-      createdAt: new Date().toISOString(),
-    };
-    setStickersList(prev => [newSticker, ...prev]);
-    setCreateOpen(false);
-    setText('');
-    setBudget('');
-    toast({ title: 'Стикер размещён', description: 'Ваш запрос опубликован на доске.' });
+    createMutation.mutate({ text, budget: parseFloat(budget) });
   };
 
-  const handleDelete = (id: string) => {
-    setStickersList(prev => prev.filter(s => s.id !== id));
-    toast({ title: 'Стикер удалён' });
+  const handleDelete = (id: number) => {
+    deleteMutation.mutate(id);
   };
 
   const handleOffer = (e: React.FormEvent) => {
@@ -124,7 +132,10 @@ export default function Stickers() {
                   Изображение будет подобрано автоматически.
                 </p>
                 <DialogFooter className="mt-6">
-                  <Button type="submit">Опубликовать</Button>
+                  <Button type="submit" disabled={createMutation.isPending}>
+                    {createMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    Опубликовать
+                  </Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -132,7 +143,11 @@ export default function Stickers() {
         )}
       </div>
 
-      {stickersList.length === 0 ? (
+      {isLoading ? (
+        <div className="py-20 text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
+        </div>
+      ) : stickersList.length === 0 ? (
         <div className="py-20 text-center border border-border/50 bg-card">
           <p className="text-muted-foreground">Стикеров пока нет. Разместите первый запрос!</p>
         </div>
@@ -140,11 +155,12 @@ export default function Stickers() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
           {stickersList.map(sticker => (
             <Card key={sticker.id} className="overflow-hidden group relative border-border/50 hover:border-primary/40 transition-colors flex flex-col">
-              {/* Delete button — only for own stickers */}
+              {/* Delete button — only for own stickers or admin */}
               {user && (sticker.userId === user.id || user.role === 'admin') && (
                 <button
                   onClick={() => handleDelete(sticker.id)}
-                  className="absolute top-2 right-2 z-10 w-6 h-6 bg-secondary/80 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-destructive"
+                  disabled={deleteMutation.isPending}
+                  className="absolute top-2 right-2 z-10 w-6 h-6 bg-secondary/80 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-destructive disabled:opacity-50"
                   title="Удалить"
                 >
                   <X className="w-3 h-3" />

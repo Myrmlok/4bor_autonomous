@@ -177,6 +177,25 @@ export const invites = {
   check:      (token: string)                 => get<{ valid: boolean; role?: string; reason?: string }>(`/invites/check/${token}`),
 };
 
+// ─── Stickers ─────────────────────────────────────────────────────────────────
+
+export interface ApiSticker {
+  id: number;
+  userId: number;
+  text: string;
+  budget: number;
+  imageUrl: string;
+  createdAt: string;
+  userLogin: string | null;
+  userRole: string | null;
+}
+
+export const stickersApi = {
+  list:   ()                                          => get<ApiSticker[]>('/stickers'),
+  create: (text: string, budget: number)              => post<ApiSticker>('/stickers', { text, budget }),
+  delete: (id: number)                                => del<void>(`/stickers/${id}`),
+};
+
 // ─── Admin ────────────────────────────────────────────────────────────────────
 
 export const admin = {
