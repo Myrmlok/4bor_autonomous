@@ -82,6 +82,25 @@ export const cartItems = pgTable('cart_items', {
   addedAt: timestamp('added_at').defaultNow().notNull(),
 });
 
+// ─── Auction bids & sales ─────────────────────────────────────────────────────
+
+export const bids = pgTable('bids', {
+  id:        serial('id').primaryKey(),
+  lotId:     text('lot_id').notNull(),
+  userId:    integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  amount:    integer('amount').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const lotSales = pgTable('lot_sales', {
+  id:         serial('id').primaryKey(),
+  lotId:      text('lot_id').notNull().unique(),
+  buyerId:    integer('buyer_id').notNull().references(() => users.id),
+  finalPrice: integer('final_price').notNull(),
+  soldVia:    text('sold_via').notNull(), // blitz | auction
+  soldAt:     timestamp('sold_at').defaultNow().notNull(),
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type User         = typeof users.$inferSelect;
@@ -89,3 +108,5 @@ export type InviteToken  = typeof inviteTokens.$inferSelect;
 export type ForumThread  = typeof forumThreads.$inferSelect;
 export type ForumPost    = typeof forumPosts.$inferSelect;
 export type CartItem     = typeof cartItems.$inferSelect;
+export type Bid          = typeof bids.$inferSelect;
+export type LotSale      = typeof lotSales.$inferSelect;

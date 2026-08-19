@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useParams, useLocation } from 'wouter';
-import { useQuery } from '@tanstack/react-query';
-import { catalog, type ApiLot, type ApiTheme, type ApiGroup } from '../lib/api-client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { catalog, type ApiLot, type ApiTheme, type ApiGroup, type ApiBid } from '../lib/api-client';
 import { formatPrice } from '../lib/format';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -43,10 +43,33 @@ export default function LotDetail() {
     enabled: !!lot?.groupId,
   });
 
-  // [STUB] bidValue tracks user's current bid input only in local state.
-  // При подключении бэкенда (Task 11): POST /api/lots/:id/bids
   const [bidValue, setBidValue] = useState<string>('');
-  const [activeBid, setActiveBid] = useState<number | null>(null);
+  const queryClient = useQueryClient();
+
+  const { data: bidHistory = [] } = useQuery<ApiBid[]>({
+    queryKey: ['catalog', 'lot', id, 'bids'],
+    queryFn: () => catalog.lotBids(id!),
+    enabled: !!id && lot?.format === 'auction',
+  });
+
+  const bidMutation = useMutation({
+    mutationFn: (amount: number) => catalog.placeBid(id!, amount),
+    onSuccess: (result) => {
+      setBidValue('');
+      queryClient.invalidateQueries({ queryKey: ['catalog', 'lot', id] });
+      queryClient.invalidateQueries({ queryKey: ['catalog', 'lot', id, 'bids'] });
+      queryClient.invalidateQueries({ queryKey: ['catalog', 'lots'] });
+      toast({
+        title: result.sold ? 'Блиц-ставка! Лот ваш' : 'Ставка принята',
+        description: result.sold
+          ? `Вы выкупили лот по блиц-цене ${formatPrice(result.bid.amount)}.`
+          : `Ваша ставка ${formatPrice(result.bid.amount)} успешно размещена.`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Ошибка ставки', description: err.message, variant: 'destructive' });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -65,8 +88,12 @@ export default function LotDetail() {
     );
   }
 
-  const currentPrice = activeBid ?? (lot.format === 'auction' ? (lot.bidMax || lot.bidMin || 0) : (lot.price || 0));
-  const minNextBid = Math.ceil(currentPrice * 1.05);
+  const hasBids = lot.currentBid != null;
+  const currentPrice = lot.format === 'auction'
+    ? (lot.currentBid ?? lot.bidMin ?? 0)
+    : (lot.price || 0);
+  const minNextBid = hasBids ? Math.ceil(currentPrice * 1.05) : (lot.bidMin ?? 1);
+  const isSold = lot.status === 'sold';
 
   const isCollector = user?.role === 'collector';
   const alreadyInCart = hasItem(lot.id);
@@ -78,11 +105,7 @@ export default function LotDetail() {
       toast({ title: 'Ошибка ставки', description: `Минимальная ставка — ${formatPrice(minNextBid)}`, variant: 'destructive' });
       return;
     }
-    // [STUB] Ставка применяется только локально.
-    // Task 11: POST /api/lots/:id/bids { amount: value }
-    setActiveBid(value);
-    setBidValue('');
-    toast({ title: 'Ставка принята', description: `Ваша ставка ${formatPrice(value)} успешно размещена.` });
+    bidMutation.mutate(value);
   };
 
   const handleAddToCart = () => {
@@ -146,16 +169,23 @@ export default function LotDetail() {
               <>
                 <div className="flex justify-between items-end mb-5">
                   <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Текущая ставка</div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-widest mb-1">
+                      {hasBids ? 'Текущая ставка' : 'Стартовая цена'}
+                    </div>
                     <div className="text-2xl md:text-3xl font-bold text-primary">{formatPrice(currentPrice)}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Ставок</div>
-                    <div className="text-xl font-semibold">{lot.bidsCount + (activeBid ? 1 : 0)}</div>
+                    <div className="text-xl font-semibold">{lot.bidsCount}</div>
                   </div>
                 </div>
 
-                {isCollector ? (
+                {isSold ? (
+                  <div className="flex items-center gap-2 border border-border/50 px-4 py-3 text-sm text-muted-foreground">
+                    <Check className="w-4 h-4 shrink-0" />
+                    Аукцион завершён — лот продан.
+                  </div>
+                ) : isCollector ? (
                   <div className="flex items-center gap-2 border border-border/50 px-4 py-3 text-sm text-muted-foreground">
                     <Lock className="w-4 h-4 shrink-0" />
                     Коллекционеры не могут делать ставки в этом разделе.
@@ -170,17 +200,42 @@ export default function LotDetail() {
                       className="flex-1 text-base h-11"
                       min={minNextBid}
                     />
-                    <Button type="submit" className="px-4 md:px-8 h-11 shrink-0">
-                      <Gavel className="w-4 h-4 mr-2" />
+                    <Button type="submit" className="px-4 md:px-8 h-11 shrink-0" disabled={bidMutation.isPending}>
+                      {bidMutation.isPending
+                        ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        : <Gavel className="w-4 h-4 mr-2" />}
                       Ставка
                     </Button>
                   </form>
                 )}
 
-                <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-                  <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                  <span>Шаг аукциона +5% от текущей ставки. Ставки отменить нельзя.</span>
-                </div>
+                {!isSold && (
+                  <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+                    <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <span>
+                      Шаг аукциона +5% от текущей ставки.
+                      {lot.bidMax ? ` Блиц-цена ${formatPrice(lot.bidMax)} — мгновенный выкуп.` : ''}
+                      {' '}Ставки отменить нельзя.
+                    </span>
+                  </div>
+                )}
+
+                {bidHistory.length > 0 && (
+                  <div className="mt-5 pt-4 border-t border-border/50">
+                    <div className="text-xs text-muted-foreground uppercase tracking-widest mb-2">История ставок</div>
+                    <ul className="space-y-1.5 max-h-40 overflow-y-auto">
+                      {bidHistory.map(b => (
+                        <li key={b.id} className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            {b.userId === user?.id ? 'Вы' : b.userLabel}
+                            <span className="ml-2 text-xs">{new Date(b.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          </span>
+                          <span className="font-medium">{formatPrice(b.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </>
             ) : (
               <>

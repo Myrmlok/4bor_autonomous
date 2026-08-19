@@ -1,4 +1,5 @@
 - [Backend architecture](backend-arch.md) — Express + Drizzle ORM + PostgreSQL; JWT in httpOnly cookie `4bor_token`; bcrypt passwords; nodemailer SMTP
 - [Demo accounts](demo-accounts.md) — 3 seeded users on first boot: admin/admin123, dealer_ivanov/123, collector_petrov/123
 - [Forum data model](forum-data.md) — categories static (not in DB); threads/posts/likes/bookmarks/seen all in DB; forum API uses React Query on frontend
+- [Auction bids overlay](auction-bids.md) — lots static, bids/sales in DB tables overlaid onto API responses; only blitz closes auctions (no end time yet)
 - [Env vars](env-vars.md) — EMAIL_HOST, EMAIL_PORT, EMAIL_USERNAME, EMAIL_SECURE, EMAIL_PASSWORD all set as Replit secrets; SESSION_SECRET also set

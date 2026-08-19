@@ -46,6 +46,18 @@ export interface ApiLot {
   format: 'fixed' | 'auction'; status: 'active' | 'sold';
   imageUrl: string; themeId: string; groupId: string;
   sectionType: 'auction' | 'exclusive' | 'liquidation'; createdAt: string;
+  currentBid?: number | null;
+}
+
+export interface ApiBid {
+  id: number; amount: number; createdAt: string; userId: number; userLabel: string;
+}
+
+export interface ApiBidResult {
+  bid: { id: number; lotId: string; userId: number; amount: number; createdAt: string };
+  leader: { userId: number; amount: number };
+  sold: boolean;
+  lot: ApiLot;
 }
 
 export interface ApiTheme  { id: string; slug: string; name: string; imageUrl: string; }
@@ -109,6 +121,8 @@ export const catalog = {
     return get<ApiLot[]>(`/catalog/lots${qs ? `?${qs}` : ''}`);
   },
   lot:          (id: string) => get<ApiLot>(`/catalog/lots/${id}`),
+  lotBids:      (id: string) => get<ApiBid[]>(`/catalog/lots/${id}/bids`),
+  placeBid:     (id: string, amount: number) => post<ApiBidResult>(`/catalog/lots/${id}/bid`, { amount }),
 };
 
 // ─── News ─────────────────────────────────────────────────────────────────────
