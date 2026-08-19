@@ -1,94 +1,144 @@
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'wouter';
 import { AdminLayout } from './AdminDashboard';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
-import { lots as initialLots } from '../../data/mock';
+import { Badge } from '../../components/ui/badge';
 import { formatPrice } from '../../lib/format';
 import { useToast } from '../../hooks/use-toast';
-import { Trash2, ExternalLink, Plus } from 'lucide-react';
-import { Link } from 'wouter';
+import { ExternalLink, Plus, Search } from 'lucide-react';
+import { catalog, type ApiLot } from '../../lib/api-client';
+
+const SECTION_RU: Record<string, string> = {
+  auction:     'Аукцион',
+  exclusive:   'Эксклюзив',
+  liquidation: 'Ликвидация',
+};
+const FORMAT_RU: Record<string, string> = {
+  fixed:   'Фиксированная цена',
+  auction: 'Аукцион',
+};
+const STATUS_CLS: Record<string, string> = {
+  active: 'bg-green-100 text-green-700',
+  sold:   'bg-gray-100 text-gray-500',
+};
 
 export default function AdminLots() {
   const { toast } = useToast();
-  const [lotsList, setLotsList] = useState(initialLots);
+  const [search, setSearch] = useState('');
+  const [section, setSection] = useState('all');
 
-  const handleDelete = (id: string) => {
-    if (!confirm('Удалить лот? Действие нельзя отменить.')) return;
-    // [STUB] Удаление — только в локальном стейте. При подключении бэкенда: DELETE /api/admin/lots/:id
-    setLotsList(prev => prev.filter(l => l.id !== id));
-    toast({ title: 'Лот удалён', variant: 'destructive' });
-  };
+  const { data: lots = [], isLoading } = useQuery({
+    queryKey: ['lots'],
+    queryFn:  () => catalog.lots(),
+    staleTime: 60_000,
+  });
 
-  const SECTION_RU: Record<string, string> = {
-    auction: 'Аукционы',
-    exclusive: 'Эксклюзивы',
-    liquidation: 'Ликвидация',
-  };
+  const filtered = lots.filter(l => {
+    const matchSection = section === 'all' || l.sectionType === section;
+    const matchSearch  = !search.trim() || l.title.toLowerCase().includes(search.toLowerCase());
+    return matchSection && matchSearch;
+  });
 
   return (
     <AdminLayout>
-      <div className="flex justify-between items-center mb-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-3xl font-serif font-semibold mb-2">Управление лотами</h1>
-          <p className="text-muted-foreground text-sm">Всего лотов: {lotsList.length}</p>
+          <h1 className="text-2xl md:text-3xl font-serif font-semibold mb-1">Управление лотами</h1>
+          <p className="text-muted-foreground text-sm">Всего лотов: {lots.length}</p>
         </div>
-        {/* [STUB] Кнопка создания лота — форма добавления лота не реализована. При подключении бэкенда: POST /api/admin/lots */}
-        <Button onClick={() => toast({ title: 'В разработке', description: 'Форма создания лота появится после подключения бэкенда.' })}>
+        <Button
+          onClick={() => toast({
+            title: 'Скоро',
+            description: 'Форма добавления лота появится в следующей версии.',
+          })}
+        >
           <Plus className="w-4 h-4 mr-2" />
           Добавить лот
         </Button>
       </div>
 
-      {lotsList.length === 0 ? (
-        <div className="py-20 text-center border border-border/50 bg-card">
-          <p className="text-muted-foreground">Нет лотов. Добавьте первый лот через форму.</p>
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        {/* Section tabs */}
+        <div className="flex gap-2 flex-wrap">
+          {['all', 'auction', 'exclusive', 'liquidation'].map(s => (
+            <Button
+              key={s}
+              variant={section === s ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSection(s)}
+            >
+              {s === 'all' ? 'Все' : SECTION_RU[s]}
+            </Button>
+          ))}
         </div>
+        {/* Search */}
+        <div className="relative flex-1 min-w-0 sm:max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Поиск по названию..."
+            className="w-full pl-9 pr-3 py-2 text-sm border border-border bg-card focus:outline-none focus:border-primary/60 transition-colors h-9"
+          />
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="py-12 text-center text-sm text-muted-foreground">Загрузка...</div>
       ) : (
         <Card className="overflow-hidden border-border/50">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-muted-foreground uppercase bg-muted/50 border-b">
                 <tr>
-                  <th className="px-6 py-4 font-medium">ID</th>
-                  <th className="px-6 py-4 font-medium">Название</th>
-                  <th className="px-6 py-4 font-medium">Раздел</th>
-                  <th className="px-6 py-4 font-medium">Формат</th>
-                  <th className="px-6 py-4 font-medium">Цена / Ставка</th>
-                  <th className="px-6 py-4 font-medium text-right">Действия</th>
+                  <th className="px-4 py-3 font-medium">Лот</th>
+                  <th className="px-4 py-3 font-medium">Раздел</th>
+                  <th className="px-4 py-3 font-medium">Формат</th>
+                  <th className="px-4 py-3 font-medium">Цена</th>
+                  <th className="px-4 py-3 font-medium">Статус</th>
+                  <th className="px-4 py-3 font-medium text-right">Действия</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {lotsList.map(l => (
-                  <tr key={l.id} className="hover:bg-muted/10">
-                    <td className="px-6 py-4 font-mono text-muted-foreground text-xs">#{l.id.toUpperCase()}</td>
-                    <td className="px-6 py-4 font-medium max-w-[200px] truncate">
-                      <Link href={`/lots/${l.id}`} className="hover:text-primary transition-colors inline-flex items-center gap-1">
-                        {l.title}
-                        <ExternalLink className="w-3 h-3 opacity-40" />
-                      </Link>
+                {filtered.map(lot => (
+                  <tr key={lot.id} className="hover:bg-muted/10">
+                    <td className="px-4 py-3">
+                      <div className="font-medium line-clamp-1 max-w-[200px]">{lot.title}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono">#{lot.id}</div>
                     </td>
-                    <td className="px-6 py-4 text-muted-foreground text-xs">{SECTION_RU[l.sectionType]}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                        l.format === 'auction' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-                      }`}>
-                        {l.format === 'auction' ? 'Аукцион' : 'Фикс.'}
+                    <td className="px-4 py-3 text-muted-foreground">{SECTION_RU[lot.sectionType]}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{FORMAT_RU[lot.format]}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {lot.format === 'auction'
+                        ? `${(lot.bidMin ?? 0).toLocaleString('ru-RU')} — ${(lot.bidMax ?? 0).toLocaleString('ru-RU')} ₽`
+                        : `${(lot.price ?? 0).toLocaleString('ru-RU')} ₽`}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-[10px] px-2 py-0.5 font-bold uppercase ${STATUS_CLS[lot.status] ?? ''}`}>
+                        {lot.status === 'active' ? 'Активен' : 'Продан'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 font-medium">{formatPrice(l.price || l.bidMax || l.bidMin)}</td>
-                    <td className="px-6 py-4 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDelete(l.id)}
-                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        title="Удалить"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                    <td className="px-4 py-3 text-right">
+                      <Link href={`/lots/${lot.id}`}>
+                        <Button variant="ghost" size="sm">
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </Button>
+                      </Link>
                     </td>
                   </tr>
                 ))}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-muted-foreground">
+                      {search ? `По запросу «${search}» лотов не найдено` : 'Лотов нет'}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

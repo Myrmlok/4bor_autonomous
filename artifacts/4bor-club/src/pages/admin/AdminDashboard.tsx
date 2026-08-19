@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import { RequireAdmin } from './RequireAdmin';
 import { Card, CardContent } from '../../components/ui/card';
 import { Sheet, SheetContent, SheetTrigger } from '../../components/ui/sheet';
-import { Users, Gavel, FileText, Settings, Ticket, Menu } from 'lucide-react';
-import { lots, stickers, themes } from '../../data/mock';
+import { Users, Gavel, MessageSquare, Ticket, Menu } from 'lucide-react';
+import { admin as adminApi, catalog } from '../../lib/api-client';
 
 const ADMIN_LINKS = [
-  { href: '/admin',         label: 'Статистика',       icon: FileText },
-  { href: '/admin/users',   label: 'Пользователи',     icon: Users    },
-  { href: '/admin/invites', label: 'Инвайты',          icon: Ticket   },
+  { href: '/admin',         label: 'Статистика',        icon: Gavel   },
+  { href: '/admin/users',   label: 'Пользователи',      icon: Users   },
+  { href: '/admin/invites', label: 'Инвайты',           icon: Ticket  },
   { href: '/admin/lots',    label: 'Управление лотами', icon: Gavel   },
 ];
 
@@ -86,46 +87,40 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 }
 
 export default function AdminDashboard() {
+  const { data: stats } = useQuery({
+    queryKey: ['admin-stats'],
+    queryFn:  () => adminApi.stats(),
+    staleTime: 30_000,
+  });
+
+  const { data: lots = [] } = useQuery({
+    queryKey: ['lots'],
+    queryFn:  () => catalog.lots(),
+    staleTime: 60_000,
+  });
+
+  const statCards = [
+    { label: 'Участники',    value: stats?.userCount   ?? '—', icon: Users         },
+    { label: 'Темы форума',  value: stats?.threadCount ?? '—', icon: MessageSquare  },
+    { label: 'Сообщения',    value: stats?.postCount   ?? '—', icon: MessageSquare  },
+    { label: 'Лоты',         value: lots.length         ?? '—', icon: Gavel         },
+  ];
+
   return (
     <AdminLayout>
       <h1 className="text-2xl md:text-3xl font-serif font-semibold mb-6 md:mb-8">Общая статистика</h1>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-        <Card className="hover-elevate">
-          <CardContent className="p-4 md:p-6">
-            <div className="flex justify-between items-start mb-3 md:mb-4">
-              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Всего лотов</div>
-              <Gavel className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-            </div>
-            <div className="text-2xl md:text-3xl font-bold">{lots.length}</div>
-          </CardContent>
-        </Card>
-        <Card className="hover-elevate">
-          <CardContent className="p-4 md:p-6">
-            <div className="flex justify-between items-start mb-3 md:mb-4">
-              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Стикеры</div>
-              <FileText className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-            </div>
-            <div className="text-2xl md:text-3xl font-bold">{stickers.length}</div>
-          </CardContent>
-        </Card>
-        <Card className="hover-elevate">
-          <CardContent className="p-4 md:p-6">
-            <div className="flex justify-between items-start mb-3 md:mb-4">
-              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Участники</div>
-              <Users className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-            </div>
-            <div className="text-2xl md:text-3xl font-bold">148</div>
-          </CardContent>
-        </Card>
-        <Card className="hover-elevate">
-          <CardContent className="p-4 md:p-6">
-            <div className="flex justify-between items-start mb-3 md:mb-4">
-              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Тематики</div>
-              <Settings className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-            </div>
-            <div className="text-2xl md:text-3xl font-bold">{themes.length}</div>
-          </CardContent>
-        </Card>
+        {statCards.map(s => (
+          <Card key={s.label} className="hover-elevate">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex justify-between items-start mb-3 md:mb-4">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{s.label}</div>
+                <s.icon className="w-4 h-4 md:w-5 md:h-5 text-primary" />
+              </div>
+              <div className="text-2xl md:text-3xl font-bold">{s.value}</div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </AdminLayout>
   );
