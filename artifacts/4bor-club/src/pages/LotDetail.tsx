@@ -14,7 +14,8 @@ export default function LotDetail() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { addItem, hasItem } = useCart();
+  const { addItem, isInCart } = useCart();
+  const hasItem = isInCart;
   const { user } = useAuth();
 
   const lot = lots.find(l => l.id === id);

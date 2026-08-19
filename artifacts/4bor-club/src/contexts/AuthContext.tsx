@@ -20,6 +20,7 @@ interface AuthContextValue {
   login:    (loginOrEmail: string, password: string) => Promise<void>;
   register: (token: string, login: string, email: string, password: string) => Promise<void>;
   logout:   () => Promise<void>;
+  setRole:  (role: UserRole) => Promise<void>;
 }
 
 // ─── Demo quick-login shortcuts ───────────────────────────────────────────────
@@ -35,7 +36,7 @@ export const DEMO_ACCOUNTS = [
 
 const AuthContext = createContext<AuthContextValue>({
   user: null, loading: true,
-  login: async () => {}, register: async () => {}, logout: async () => {},
+  login: async () => {}, register: async () => {}, logout: async () => {}, setRole: async () => {},
 });
 
 function toAuthUser(u: ApiUser): AuthUser {
@@ -71,8 +72,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const setRole = useCallback(async (role: UserRole) => {
+    const u = await auth.setRole(role);
+    setUser(toAuthUser(u));
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, setRole }}>
       {children}
     </AuthContext.Provider>
   );
