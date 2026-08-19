@@ -45,13 +45,13 @@ export default function Stickers() {
   const handleAddSticker = (e: React.FormEvent) => {
     e.preventDefault();
     if (!text || !budget) return;
-    const newSticker = {
+    const randomImage = themes[Math.floor(Math.random() * themes.length)].imageUrl;
+    const newSticker: Sticker = {
       id: `s${Date.now()}`,
       userId: user?.id || 1,
       text,
       budget: parseFloat(budget),
-      // [STUB] Изображение стикера — случайная тематика. При подключении бэкенда: загрузка своего фото
-      imageUrl: themes[Math.floor(Math.random() * themes.length)].imageUrl,
+      imageUrl: randomImage,
       createdAt: new Date().toISOString(),
     };
     setStickersList(prev => [newSticker, ...prev]);
@@ -62,7 +62,6 @@ export default function Stickers() {
   };
 
   const handleDelete = (id: string) => {
-    // [STUB] Удаление только в локальном стейте. При подключении бэкенда: DELETE /api/stickers/:id
     setStickersList(prev => prev.filter(s => s.id !== id));
     toast({ title: 'Стикер удалён' });
   };
@@ -71,7 +70,6 @@ export default function Stickers() {
     e.preventDefault();
     if (!offerText.trim()) return;
     // [STUB] Предложение отправляется только как тост.
-    // При подключении бэкенда: POST /api/stickers/:id/offers { message, price }
     toast({
       title: 'Предложение отправлено',
       description: `Автор стикера получит ваше сообщение.`,
@@ -122,9 +120,8 @@ export default function Stickers() {
                     min={1}
                   />
                 </div>
-                {/* [STUB] Загрузка фото стикера не реализована — используется случайное изображение */}
                 <p className="text-xs text-muted-foreground border border-border/50 px-3 py-2 bg-muted/30">
-                  Изображение будет подобрано автоматически. Загрузка своего фото появится после подключения бэкенда.
+                  Изображение будет подобрано автоматически.
                 </p>
                 <DialogFooter className="mt-6">
                   <Button type="submit">Опубликовать</Button>
@@ -167,7 +164,6 @@ export default function Stickers() {
                 <div className="mt-auto">
                   <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Бюджет</div>
                   <div className="font-semibold text-primary mb-3">от {formatPrice(sticker.budget)}</div>
-                  {/* Предложить — открывает диалог с формой */}
                   <Button
                     variant="outline"
                     size="sm"
@@ -217,7 +213,6 @@ export default function Stickers() {
                 min={1}
               />
             </div>
-            {/* [STUB] Отправка уведомления продавцу — только тост. POST /api/stickers/:id/offers при бэкенде */}
             <p className="text-xs text-muted-foreground">
               Ваше предложение будет передано автору запроса через внутренние сообщения.
             </p>

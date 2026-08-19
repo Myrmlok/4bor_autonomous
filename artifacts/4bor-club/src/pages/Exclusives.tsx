@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'wouter';
-import { Lock } from 'lucide-react';
-import { lots, themes } from '../data/mock';
+import { Lock, Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { catalog, type ApiLot, type ApiTheme } from '../lib/api-client';
 import { formatPrice } from '../lib/format';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -11,7 +12,18 @@ import { useAuth } from '../contexts/AuthContext';
 export default function Exclusives() {
   const { user } = useAuth();
   const [activeTheme, setActiveTheme] = useState<string>('all');
-  
+
+  const { data: themes = [] } = useQuery<ApiTheme[]>({
+    queryKey: ['catalog', 'themes'],
+    queryFn: catalog.themes,
+  });
+
+  const { data: exclusiveLots = [], isLoading } = useQuery<ApiLot[]>({
+    queryKey: ['catalog', 'lots', { section: 'exclusive' }],
+    queryFn: () => catalog.lots({ section: 'exclusive' }),
+    enabled: user?.role !== 'collector',
+  });
+
   if (user?.role === 'collector') {
     return (
       <div className="p-8 flex items-center justify-center min-h-[60vh]">
@@ -31,8 +43,9 @@ export default function Exclusives() {
     );
   }
 
-  const exclusiveLots = lots.filter(l => l.sectionType === 'exclusive');
-  const filteredLots = activeTheme === 'all' ? exclusiveLots : exclusiveLots.filter(l => l.themeId === activeTheme);
+  const filteredLots = activeTheme === 'all'
+    ? exclusiveLots
+    : exclusiveLots.filter(l => l.themeId === activeTheme);
 
   return (
     <div className="p-8">
@@ -63,7 +76,11 @@ export default function Exclusives() {
         ))}
       </div>
 
-      {filteredLots.length === 0 ? (
+      {isLoading ? (
+        <div className="py-20 flex justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : filteredLots.length === 0 ? (
         <div className="py-20 text-center border rounded-xl bg-card">
           <p className="text-muted-foreground mb-4">В данном разделе пока нет активных лотов.</p>
         </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useParams, useLocation } from 'wouter';
-import { lots, themes, groups } from '../data/mock';
+import { useQuery } from '@tanstack/react-query';
+import { catalog, type ApiLot, type ApiTheme, type ApiGroup } from '../lib/api-client';
 import { formatPrice } from '../lib/format';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -8,7 +9,7 @@ import { Badge } from '../components/ui/badge';
 import { useToast } from '../hooks/use-toast';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
-import { ChevronLeft, Info, Gavel, ShoppingBag, Check, Lock } from 'lucide-react';
+import { ChevronLeft, Info, Gavel, ShoppingBag, Check, Lock, Loader2 } from 'lucide-react';
 
 export default function LotDetail() {
   const { id } = useParams<{ id: string }>();
@@ -18,14 +19,44 @@ export default function LotDetail() {
   const hasItem = isInCart;
   const { user } = useAuth();
 
-  const lot = lots.find(l => l.id === id);
+  const { data: lot, isLoading, isError } = useQuery<ApiLot>({
+    queryKey: ['catalog', 'lot', id],
+    queryFn: () => catalog.lot(id!),
+    enabled: !!id,
+  });
+
+  const { data: relatedLots = [] } = useQuery<ApiLot[]>({
+    queryKey: ['catalog', 'lots', { themeId: lot?.themeId }],
+    queryFn: () => catalog.lots({ themeId: lot!.themeId }),
+    enabled: !!lot?.themeId,
+  });
+
+  const { data: theme } = useQuery<ApiTheme>({
+    queryKey: ['catalog', 'theme', lot?.themeId],
+    queryFn: () => catalog.theme(lot!.themeId),
+    enabled: !!lot?.themeId,
+  });
+
+  const { data: group } = useQuery<ApiGroup>({
+    queryKey: ['catalog', 'group', lot?.groupId],
+    queryFn: () => catalog.group(lot!.groupId),
+    enabled: !!lot?.groupId,
+  });
+
   // [STUB] bidValue tracks user's current bid input only in local state.
-  // При подключении бэкенда: POST /api/lots/:id/bids
+  // При подключении бэкенда (Task 11): POST /api/lots/:id/bids
   const [bidValue, setBidValue] = useState<string>('');
-  // [STUB] activeBid — текущая ставка хранится локально, не синхронизирована с сервером.
   const [activeBid, setActiveBid] = useState<number | null>(null);
 
-  if (!lot) {
+  if (isLoading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (isError || !lot) {
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[60vh]">
         <p className="text-muted-foreground text-lg mb-4">Лот не найден.</p>
@@ -33,9 +64,6 @@ export default function LotDetail() {
       </div>
     );
   }
-
-  const theme = themes.find(t => t.id === lot.themeId);
-  const group = groups.find(g => g.id === lot.groupId);
 
   const currentPrice = activeBid ?? (lot.format === 'auction' ? (lot.bidMax || lot.bidMin || 0) : (lot.price || 0));
   const minNextBid = Math.ceil(currentPrice * 1.05);
@@ -51,7 +79,7 @@ export default function LotDetail() {
       return;
     }
     // [STUB] Ставка применяется только локально.
-    // При подключении бэкенда: POST /api/lots/:id/bids { amount: value }
+    // Task 11: POST /api/lots/:id/bids { amount: value }
     setActiveBid(value);
     setBidValue('');
     toast({ title: 'Ставка принята', description: `Ваша ставка ${formatPrice(value)} успешно размещена.` });
@@ -69,6 +97,8 @@ export default function LotDetail() {
     exclusive:  'Эксклюзив',
     liquidation:'Ликвидация',
   };
+
+  const otherLots = relatedLots.filter(l => l.id !== lot.id).slice(0, 4);
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
@@ -193,30 +223,33 @@ export default function LotDetail() {
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Статус</span>
-              <span className="text-green-600 font-medium">Активен</span>
+              <span className={lot.status === 'active' ? 'text-green-600 font-medium' : 'text-muted-foreground'}>
+                {lot.status === 'active' ? 'Активен' : 'Продан'}
+              </span>
             </div>
           </div>
         </div>
       </div>
 
       {/* Related lots */}
-      {/* [STUB] Похожие лоты — из той же тематики */}
-      <div className="mt-8 md:mt-10">
-        <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4 md:mb-5">Похожие лоты</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-          {lots.filter(l => l.themeId === lot.themeId && l.id !== lot.id).slice(0, 4).map(related => (
-            <Link key={related.id} href={`/lots/${related.id}`} className="group border border-border/50 overflow-hidden hover:border-primary/40 transition-colors bg-card">
-              <div className="h-24 md:h-32 overflow-hidden bg-muted">
-                <img src={related.imageUrl} alt={related.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-              </div>
-              <div className="p-2.5 md:p-3">
-                <p className="text-xs font-medium line-clamp-2 mb-1 group-hover:text-primary transition-colors">{related.title}</p>
-                <p className="text-xs text-primary font-semibold">{formatPrice(related.price || related.bidMax || related.bidMin)}</p>
-              </div>
-            </Link>
-          ))}
+      {otherLots.length > 0 && (
+        <div className="mt-8 md:mt-10">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4 md:mb-5">Похожие лоты</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+            {otherLots.map(related => (
+              <Link key={related.id} href={`/lots/${related.id}`} className="group border border-border/50 overflow-hidden hover:border-primary/40 transition-colors bg-card">
+                <div className="h-24 md:h-32 overflow-hidden bg-muted">
+                  <img src={related.imageUrl} alt={related.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                </div>
+                <div className="p-2.5 md:p-3">
+                  <p className="text-xs font-medium line-clamp-2 mb-1 group-hover:text-primary transition-colors">{related.title}</p>
+                  <p className="text-xs text-primary font-semibold">{formatPrice(related.price || related.bidMax || related.bidMin)}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

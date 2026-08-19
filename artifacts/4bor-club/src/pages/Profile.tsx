@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { ROLE_LABELS } from '../lib/format';
-import { User as UserIcon, LogOut, Settings, Gavel, Crown } from 'lucide-react';
 import { useLocation } from 'wouter';
+import { useCart } from '../contexts/CartContext';
+import { useToast } from '../hooks/use-toast';
+import { LogOut, Settings, ShoppingBag, Crown } from 'lucide-react';
 
 type Role = 'admin' | 'dealer' | 'collector';
 
@@ -11,18 +13,6 @@ const ROLE_BADGE: Record<Role, string> = {
   collector: 'bg-blue-500/15 text-blue-700 border border-blue-400/30',
   admin:     'bg-purple-500/15 text-purple-700 border border-purple-400/30',
 };
-
-const MOCK_BIDS = [
-  { lot: 'Денга Ивана Грозного',  date: '12.05.2025, 15:30', amount: 3500, status: 'leader' },
-  { lot: 'Крест энколпион',       date: '10.05.2025, 11:20', amount: 6000, status: 'outbid' },
-  { lot: 'Дирхем Золотой Орды',   date: '07.05.2025, 09:45', amount:  900, status: 'won'    },
-];
-
-const MOCK_ORDERS = [
-  { lot: 'Полушка Василия Дмитриевича', date: '05.05.2025', amount: 12000 },
-  { lot: '5 копеек 1726 года',          date: '01.05.2025', amount: 45000 },
-];
-
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   leader: { label: 'Лидирует', cls: 'text-green-600' },
   outbid: { label: 'Перебита', cls: 'text-red-500'   },
@@ -31,7 +21,9 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 
 export default function Profile() {
   const { user, logout, setRole } = useAuth();
+  const { items: cartItems } = useCart();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   // Redirect to login if not authenticated — done in effect to avoid setState-during-render
   useEffect(() => {
@@ -43,8 +35,12 @@ export default function Profile() {
   const handleSetRole = async (role: Role) => {
     try {
       await setRole(role);
-    } catch {
-      // silently ignore — demo feature
+    } catch (err) {
+      toast({
+        title: 'Не удалось переключить роль',
+        description: err instanceof Error ? err.message : 'Ошибка сервера',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -93,58 +89,57 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Demo role switcher */}
-          <div className="border border-border/50 bg-card p-4 md:p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Settings className="w-4 h-4 text-muted-foreground" />
-              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Демо-режим</span>
+          {/* Demo role switcher — only for non-admin users */}
+          {user.role !== 'admin' && (
+            <div className="border border-border/50 bg-card p-4 md:p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Settings className="w-4 h-4 text-muted-foreground" />
+                <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Демо-режим</span>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                Переключитесь в другую роль, чтобы проверить, как меняется интерфейс.
+              </p>
+              <div className="flex flex-row md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-1 md:pb-0">
+                {(['dealer', 'collector'] as Role[]).map(role => (
+                  <button
+                    key={role}
+                    onClick={() => handleSetRole(role)}
+                    className={`shrink-0 md:shrink text-left px-3 py-2.5 text-sm border transition-all whitespace-nowrap ${
+                      user.role === role
+                        ? 'border-primary bg-primary/10 text-foreground font-medium'
+                        : 'border-border/40 hover:border-primary/40 text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {ROLE_LABELS[role]}
+                    {user.role === role && (
+                      <span className="ml-2 text-[10px] text-primary uppercase tracking-widest">Активна</span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-              Переключитесь в другую роль, чтобы проверить, как меняется интерфейс.
-            </p>
-            <div className="flex flex-row md:flex-col gap-2 overflow-x-auto md:overflow-visible pb-1 md:pb-0">
-              {(['dealer', 'collector', 'admin'] as Role[]).map(role => (
-                <button
-                  key={role}
-                  onClick={() => handleSetRole(role)}
-                  className={`shrink-0 md:shrink text-left px-3 py-2.5 text-sm border transition-all whitespace-nowrap ${
-                    user.role === role
-                      ? 'border-primary bg-primary/10 text-foreground font-medium'
-                      : 'border-border/40 hover:border-primary/40 text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {ROLE_LABELS[role]}
-                  {user.role === role && (
-                    <span className="ml-2 text-[10px] text-primary uppercase tracking-widest">Активна</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
 
         {/* History — 2 cols on desktop, full width on mobile */}
         <div className="md:col-span-2 flex flex-col gap-5">
 
-          {/* Bids — only for dealers / admin */}
-          {user.role !== 'collector' && (
+          {/* Cart summary */}
+          {cartItems.length > 0 && (
             <div className="border border-border/50 bg-card p-4 md:p-6">
-              <h3 className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-5 flex items-center gap-2">
-                <Gavel className="w-4 h-4" />
-                История ставок
+              <h3 className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-4 flex items-center gap-2">
+                <ShoppingBag className="w-4 h-4" />
+                Корзина
               </h3>
               <div className="divide-y divide-border/40">
-                {MOCK_BIDS.map((b, i) => (
-                  <div key={i} className="flex items-center justify-between py-3 gap-3">
+                {cartItems.map(item => (
+                  <div key={item.id} className="flex items-center justify-between py-3 gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{b.lot}</div>
-                      <div className="text-xs text-muted-foreground">{b.date}</div>
+                      <div className="text-sm font-medium truncate">{item.title}</div>
+                      <div className="text-xs text-muted-foreground capitalize">{item.sectionType}</div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-sm font-semibold">{b.amount.toLocaleString('ru-RU')} ₽</div>
-                      <div className={`text-[10px] font-bold uppercase ${STATUS_LABEL[b.status].cls}`}>
-                        {STATUS_LABEL[b.status].label}
-                      </div>
+                    <div className="text-sm font-semibold shrink-0">
+                      {(item.price || item.bidMax || item.bidMin || 0).toLocaleString('ru-RU')} ₽
                     </div>
                   </div>
                 ))}
@@ -152,22 +147,22 @@ export default function Profile() {
             </div>
           )}
 
-          {/* Purchases */}
+          {/* Bids placeholder — will be populated in Task 11 */}
+          {user.role !== 'collector' && (
+            <div className="border border-border/50 bg-card p-4 md:p-6">
+              <h3 className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-5">
+                История ставок
+              </h3>
+              <p className="text-sm text-muted-foreground">История ставок появится после подключения аукционных торгов.</p>
+            </div>
+          )}
+
+          {/* Purchases placeholder */}
           <div className="border border-border/50 bg-card p-4 md:p-6">
             <h3 className="text-sm font-medium uppercase tracking-widest text-muted-foreground mb-5">
               История покупок
             </h3>
-            <div className="divide-y divide-border/40">
-              {MOCK_ORDERS.map((o, i) => (
-                <div key={i} className="flex items-center justify-between py-3 gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{o.lot}</div>
-                    <div className="text-xs text-muted-foreground">{o.date}</div>
-                  </div>
-                  <div className="text-sm font-semibold shrink-0">{o.amount.toLocaleString('ru-RU')} ₽</div>
-                </div>
-              ))}
-            </div>
+            <p className="text-sm text-muted-foreground">История покупок появится после завершения заказов.</p>
           </div>
 
           {/* Collector info */}

@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link, useParams } from 'wouter';
-import { Clock } from 'lucide-react';
-import { lots, themes, groups } from '../data/mock';
+import { Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { catalog, type ApiLot, type ApiTheme, type ApiGroup } from '../lib/api-client';
 import { formatPrice } from '../lib/format';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardFooter } from '../components/ui/card';
@@ -13,20 +14,37 @@ export default function CatalogGroup() {
   // parse search params manually since wouter doesn't have useSearchParams
   const section = new URLSearchParams(window.location.search).get('section') || 'auction';
 
-  const theme = themes.find(t => t.id === themeId);
-  const group = groups.find(g => g.id === groupId);
-  
-  const groupLots = lots.filter(l => 
-    l.themeId === themeId && 
-    l.groupId === groupId && 
-    l.sectionType === section
-  );
+  const { data: theme } = useQuery<ApiTheme>({
+    queryKey: ['catalog', 'theme', themeId],
+    queryFn: () => catalog.theme(themeId!),
+    enabled: !!themeId,
+  });
+
+  const { data: group } = useQuery<ApiGroup>({
+    queryKey: ['catalog', 'group', groupId],
+    queryFn: () => catalog.group(groupId!),
+    enabled: !!groupId,
+  });
+
+  const { data: groupLots = [], isLoading } = useQuery<ApiLot[]>({
+    queryKey: ['catalog', 'lots', { themeId, groupId, section }],
+    queryFn: () => catalog.lots({ section, themeId, groupId }),
+    enabled: !!themeId && !!groupId,
+  });
 
   const sectionTitles: Record<string, string> = {
     'auction': 'Аукционы',
     'exclusive': 'Эксклюзивы',
     'liquidation': 'Ликвидация'
   };
+
+  if (isLoading) {
+    return (
+      <div className="p-8 flex items-center justify-center min-h-[40vh]">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (!theme || !group) return <div className="p-8">Раздел не найден</div>;
 

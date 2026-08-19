@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { themes, groups, lots, activities } from '../data/catalog.js';
+import { themes, groups, lots, activities, newsList } from '../data/catalog.js';
 
 const router = Router();
 
@@ -43,6 +43,9 @@ router.get('/lots/:id', (req, res) => {
   if (!lot) { res.status(404).json({ error: 'Лот не найден' }); return; }
   res.json(lot);
 });
+
+// GET /api/catalog/news
+router.get('/news', (_req, res) => res.json(newsList));
 
 // GET /api/activity
 router.get('/activity', (_req, res) => res.json(activities));

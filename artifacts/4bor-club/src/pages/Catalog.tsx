@@ -1,10 +1,24 @@
 import React from 'react';
 import { Link, useParams } from 'wouter';
-import { ChevronRight, Lock } from 'lucide-react';
-import { themes, groups } from '../data/mock';
+import { ChevronRight, Lock, Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { catalog, type ApiTheme, type ApiGroup } from '../lib/api-client';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Catalog() {
+  const { data: themes = [], isLoading } = useQuery<ApiTheme[]>({
+    queryKey: ['catalog', 'themes'],
+    queryFn: catalog.themes,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="p-8 flex items-center justify-center min-h-[40vh]">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="p-8">
       <h1 className="text-3xl font-serif font-semibold mb-8">Каталог тематик</h1>
@@ -41,8 +55,25 @@ export function CatalogTheme() {
   const { user } = useAuth();
   const isCollector = user?.role === 'collector';
   
-  const theme = themes.find(t => t.id === themeId);
-  const themeGroups = groups.filter(g => g.themeId === themeId);
+  const { data: theme, isLoading: loadingTheme } = useQuery<ApiTheme>({
+    queryKey: ['catalog', 'theme', themeId],
+    queryFn: () => catalog.theme(themeId!),
+    enabled: !!themeId,
+  });
+
+  const { data: themeGroups = [], isLoading: loadingGroups } = useQuery<ApiGroup[]>({
+    queryKey: ['catalog', 'themeGroups', themeId],
+    queryFn: () => catalog.themeGroups(themeId!),
+    enabled: !!themeId,
+  });
+
+  if (loadingTheme || loadingGroups) {
+    return (
+      <div className="p-8 flex items-center justify-center min-h-[40vh]">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (!theme) return <div className="p-8">Тематика не найдена</div>;
 

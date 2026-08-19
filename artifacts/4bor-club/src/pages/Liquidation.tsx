@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'wouter';
-import { lots, themes } from '../data/mock';
+import { Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { catalog, type ApiLot, type ApiTheme } from '../lib/api-client';
 import { formatPrice } from '../lib/format';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -8,9 +10,20 @@ import { Badge } from '../components/ui/badge';
 
 export default function Liquidation() {
   const [activeTheme, setActiveTheme] = useState<string>('all');
-  
-  const liquiLots = lots.filter(l => l.sectionType === 'liquidation');
-  const filteredLots = activeTheme === 'all' ? liquiLots : liquiLots.filter(l => l.themeId === activeTheme);
+
+  const { data: themes = [] } = useQuery<ApiTheme[]>({
+    queryKey: ['catalog', 'themes'],
+    queryFn: catalog.themes,
+  });
+
+  const { data: liquiLots = [], isLoading } = useQuery<ApiLot[]>({
+    queryKey: ['catalog', 'lots', { section: 'liquidation' }],
+    queryFn: () => catalog.lots({ section: 'liquidation' }),
+  });
+
+  const filteredLots = activeTheme === 'all'
+    ? liquiLots
+    : liquiLots.filter(l => l.themeId === activeTheme);
 
   return (
     <div className="p-8">
@@ -41,7 +54,11 @@ export default function Liquidation() {
         ))}
       </div>
 
-      {filteredLots.length === 0 ? (
+      {isLoading ? (
+        <div className="py-20 flex justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : filteredLots.length === 0 ? (
         <div className="py-20 text-center border rounded-xl bg-card">
           <p className="text-muted-foreground mb-4">В данном разделе пока нет активных лотов.</p>
         </div>

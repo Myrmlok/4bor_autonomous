@@ -141,13 +141,23 @@ router.get('/me', requireAuth, async (req, res) => {
 });
 
 // ─── PATCH /api/auth/me ───────────────────────────────────────────────────────
+// Demo role-switcher: non-admin users may toggle between dealer and collector
+// for UI demonstration only.  Admins are excluded — they must not self-demote
+// through this endpoint, which would permanently lock them out of admin routes.
 
 router.patch('/me', requireAuth, async (req, res) => {
   try {
+    // Admins cannot use this demo endpoint (prevents irreversible self-demotion).
+    if (req.user!.role === 'admin') {
+      res.status(403).json({ error: 'Администраторы не могут менять роль через демо-переключатель' });
+      return;
+    }
+
     const { role } = req.body as { role?: string };
-    const allowedRoles = ['admin', 'dealer', 'collector'];
-    if (!role || !allowedRoles.includes(role)) {
-      res.status(400).json({ error: 'Недопустимая роль' });
+    const demoRoles = ['dealer', 'collector'];
+
+    if (!role || !demoRoles.includes(role)) {
+      res.status(403).json({ error: 'Недостаточно прав для назначения этой роли' });
       return;
     }
 
@@ -157,6 +167,8 @@ router.patch('/me', requireAuth, async (req, res) => {
       .where(eq(users.id, req.user!.sub))
       .returning();
 
+    const newToken = signToken({ sub: updated!.id, login: updated!.login, role: updated!.role });
+    setCookie(res, newToken);
     res.json(userPublic(updated!));
   } catch {
     res.status(500).json({ error: 'Ошибка сервера' });
